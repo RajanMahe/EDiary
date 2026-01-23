@@ -12,6 +12,13 @@ enum class InsertType {
     Workout, Food, Spent
 }
 
+enum class TextFormat {
+    Bold,
+    Italic,
+    Underline
+}
+
+
 fun InsertType.label(): String =
     when (this) {
         InsertType.Workout -> "🏋️"

@@ -23,6 +23,24 @@ interface DiaryDao {
     @Query("SELECT * FROM diary WHERE date = :date")
     suspend fun getDiaryByDate(date: String): DiaryEntity?
 
+    @Query("""
+    SELECT * FROM diary 
+    WHERE content LIKE :query 
+    OR date LIKE :query
+    ORDER BY date DESC
+            """)
+    suspend fun searchDiary(query: String): List<DiaryEntity>
+
+
+    @Query("SELECT * FROM diary ORDER BY date ASC")
+    suspend fun getAllForExport(): List<DiaryEntity>
+
+    @Query("DELETE FROM diary")
+    suspend fun clearAll()
+
+    @Query("SELECT COUNT(*) FROM diary")
+    suspend fun getCount(): Int
+
 
 
 

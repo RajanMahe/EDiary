@@ -3,8 +3,11 @@
 
 package com.example.diary
 
-
-
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -13,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,12 +31,18 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.draw.alpha
 import androidx.compose.material.icons.filled.DateRange
 import androidx.lifecycle.viewmodel.compose.viewModel
-
-
-
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.MoreVert
+import com.example.diary.DiaryViewModel.BackupEvent
 
 
 
@@ -40,18 +50,76 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun DiaryScreen() {
 
+    val context = LocalContext.current
+
+    val diaryViewModel: DiaryViewModel = viewModel()
+
+    /* ---------------- Restore Backup---------------- */
+    val scope = rememberCoroutineScope()
+
+
+
+
+
+
+
+
+    val editorScrollState = rememberScrollState()
+
+
+    var pendingImportText by remember { mutableStateOf<String?>(null) }
+    var pendingImportCount by remember { mutableStateOf(0) }
+    var showBackupScreen by remember { mutableStateOf(false) }
+
+
+
+
+    /* ---------------- Back-Up ---------------- */
+
+
+
+
+
+
+    var showExportMenu by remember { mutableStateOf(false) }
+
+
+    /* ---------------- SNACKBAR ---------------- */
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+
     /* ---------------- DATE STATE ---------------- */
+
     val iconColor = Color.Black
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showCalendarPicker by remember { mutableStateOf(false) }
 
-    val diaryViewModel: DiaryViewModel = viewModel()
     val dateFormatter = remember { DateTimeFormatter.ofPattern("d MMM") }
     val dateText = if (selectedDate == LocalDate.now()) {
         "Today (${selectedDate.format(dateFormatter)})"
     } else {
         selectedDate.format(dateFormatter)
     }
+
+    val isToday = selectedDate == LocalDate.now()
+    val showEditor = isToday || diaryViewModel.isEditMode
+
+    val isEmptyEntry = diaryViewModel.diaryText.text.isBlank()
+    val showPlaceholder = !showEditor && isEmptyEntry
+
+
+
+
+    /*-------------Dairy Template-------------- */
+
+    val templates = listOf(
+        DiaryTemplate("Workout", "🏋️"),
+        DiaryTemplate("Food", "🍔"),
+        DiaryTemplate("Spent", "💸")
+    )
+
+
 
     /* ---------------- DIARY TABS STATE ---------------- */
 
@@ -60,30 +128,186 @@ fun DiaryScreen() {
     LaunchedEffect(selectedDate) {
         diaryViewModel.saveCurrentDiary()
         diaryViewModel.loadDiaryForDate(selectedDate)
+        diaryViewModel.updateEditModeForDate(selectedDate)
+
     }
+
+    var showSearch by remember { mutableStateOf(false) }
+    val previewScrollState = rememberScrollState()
 
     /* ---------------- TOOLBAR STATE ---------------- */
 
     var showTypeDialog by remember { mutableStateOf(false) }
 
+    /* ---------------- ANIMATION ---------------- */
+    val slideOffsetX = remember { Animatable(0f) }
+    val screenWidth = 400f // safe constant for now
+
+    fun animateToDate(newDate: LocalDate, direction: Int) {
+        scope.launch {
+            // slide current page out
+            slideOffsetX.animateTo(direction * screenWidth)
+
+            // change date AFTER slide-out
+            selectedDate = newDate
+
+            // jump content to opposite side (invisible)
+            slideOffsetX.snapTo(-direction * screenWidth)
+
+            // slide new page in
+            slideOffsetX.animateTo(0f)
+        }
+    }
+    var showAppLockScreen by remember { mutableStateOf(false) }
+
+
+    /* ---------------- App Lock ---------------- */
+
+
+    var showLockDialog by remember { mutableStateOf(false) }
+
+
+
+
     /* ---------------- UI ---------------- */
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+
+
+
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFF4285F4)
                 ),
+
                 title = {
-                    Text(
-                        text = "EDiary",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    )
+                    Column {
+                        Text(
+                            text = "EDiary",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+
+
+                    }
+                },
+
+
+
+
+                actions = {
+                    IconButton(onClick = { showSearch = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = Color.White
+                        )
+                    }
+                    // ✅ SAVE INDICATOR — ONLY IN EDIT MODE
+                    if (showEditor) {
+                        when (diaryViewModel.saveState) {
+                            DiaryViewModel.SaveState.SAVING -> {
+                                Text(
+                                    text = "Saving…",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(end = 12.dp)
+                                )
+                            }
+                            DiaryViewModel.SaveState.SAVED -> {
+                                Text(
+                                    text = "Saved",
+                                    color = Color(0xFFB9F6CA),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(end = 12.dp)
+                                )
+                            }
+
+                            DiaryViewModel.SaveState.DIRTY,
+                            DiaryViewModel.SaveState.IDLE -> {
+                                // no UI
+                            }
+                        }
+                    }
+                    // ✅ EDIT BUTTON — ONLY IN PREVIEW MODE
+                    if (!isToday && !diaryViewModel.isEditMode) {
+                        Text(
+                            text = "Edit",
+                            color = Color.White,
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .clickable { diaryViewModel.enableEditMode() },
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    IconButton(onClick = { showExportMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More",
+                            tint = Color.White
+                        )
+                    }
+
+
+                        DropdownMenu(
+                            expanded = showExportMenu,
+                            onDismissRequest = { showExportMenu = false }
+                        ) {
+
+                            DropdownMenuItem(
+                                text = { Text("App Lock") },
+                                onClick = {
+                                    showExportMenu = false
+                                    showBackupScreen = false
+                                    showLockDialog = true   // 👈 or trigger lock dialog
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Backup & Restore") },
+                                onClick = {
+                                    showExportMenu = false
+                                    showBackupScreen = true
+                                }
+                            )
+                        }
+
+
                 }
 
             )
+            if (showLockDialog) {
+                AlertDialog(
+                    onDismissRequest = { showLockDialog = false },
+                    title = { Text("App Lock") },
+                    text = {
+                        Column {
+                            LockOption("Off", LockMode.OFF)
+                            LockOption("Biometric / Face", LockMode.BIOMETRIC)
+                        }
+                    },
+                    confirmButton = {},
+                    dismissButton = {
+                        TextButton(onClick = { showLockDialog = false }) {
+                            Text("Close")
+                        }
+                    }
+                )
+            }
+
+            if (showBackupScreen) {
+                BackupRestoreScreen(
+                    viewModel = diaryViewModel, // ✅ SAME INSTANCE
+
+                    onBack = { showBackupScreen = false }
+                )
+            }
+
+
+
         }
     ) { padding ->
 
@@ -105,9 +329,9 @@ fun DiaryScreen() {
             ) {
                 Spacer(Modifier.weight(1f))
 
-                Text("<<",Modifier.clickable { selectedDate = selectedDate.minusDays(2) },color = iconColor)
+                Text("<<",Modifier.clickable { animateToDate(selectedDate.plusDays(-2), +1) },color = iconColor)
                 Spacer(Modifier.width(12.dp))
-                Text("<", Modifier.clickable { selectedDate = selectedDate.minusDays(1) },color = iconColor)
+                Text("<", Modifier.clickable { animateToDate(selectedDate.plusDays(-1), +1) },color = iconColor)
 
                 Spacer(Modifier.width(24.dp))
 
@@ -120,9 +344,9 @@ fun DiaryScreen() {
 
                 Spacer(Modifier.width(24.dp))
 
-                Text(">", Modifier.clickable { selectedDate = selectedDate.plusDays(1) },color = iconColor)
+                Text(">", Modifier.clickable { animateToDate(selectedDate.plusDays(1), -1) },color = iconColor)
                 Spacer(Modifier.width(12.dp))
-                Text(">>", Modifier.clickable { selectedDate = selectedDate.plusDays(2) },color = iconColor)
+                Text(">>", Modifier.clickable { animateToDate(selectedDate.plusDays(2), -1) },color = iconColor)
 
                 Spacer(Modifier.weight(1f))
 
@@ -134,6 +358,8 @@ fun DiaryScreen() {
                     },
                     tint = iconColor
                 )
+                Spacer(Modifier.width(24.dp))
+
             }
 
 
@@ -144,43 +370,123 @@ fun DiaryScreen() {
 
 
 // --- Editor Toolbar ---
-            EditorToolbar {
-                showTypeDialog = true
-            }
-
-            Divider(
-                color = Color(0xFF4285F4),
-                thickness = 1.dp
-            )
-// --- Ruled Editor ---
 
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.White)
-                    .ruledBackground()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .weight(1f)
+                    .pointerInput(selectedDate, showEditor) {
+                        if (!showEditor) {
+                            var totalDrag = 0f
+
+                            detectHorizontalDragGestures(
+                                onHorizontalDrag = { _, dragAmount ->
+                                    totalDrag += dragAmount
+                                    scope.launch {
+                                        slideOffsetX.snapTo(totalDrag)
+                                    }
+                                },
+                                onDragEnd = {
+                                    when {
+                                        totalDrag < -120f ->
+                                            animateToDate(selectedDate.plusDays(1), -1)
+
+                                        totalDrag > 120f ->
+                                            animateToDate(selectedDate.minusDays(1), +1)
+
+                                        else ->
+                                            scope.launch { slideOffsetX.animateTo(0f) }
+                                    }
+                                    totalDrag = 0f
+                                },
+                                onDragCancel = {
+                                    scope.launch { slideOffsetX.animateTo(0f) }
+                                    totalDrag = 0f
+                                }
+                            )
+                        }
+                    }
             ) {
-                BasicTextField(
-                    value = diaryViewModel.diaryText,
-                    onValueChange = {
-                        diaryViewModel.updateDiaryText(it)                    },
-                    textStyle = LocalTextStyle.current.copy(
-                        color = Color.Black,
-                        lineHeight = 24.sp
-                    ),
-                    modifier = Modifier.fillMaxSize()
-                )
 
-                if (diaryViewModel.diaryText.text.isEmpty()) {
-                    Text(
-                        text = "Add to a type",
-                        color = Color.Gray,
-                        modifier = Modifier.alpha(0.5f)
-                    )
+                // ---------- CONTENT ----------
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = slideOffsetX.value
+                        }
+                ) {
+
+                    if (showEditor) {
+
+                        Column(modifier = Modifier.fillMaxSize()) {
+
+                            EditorToolbar(
+                                enabled = true,
+                                onAddType = { showTypeDialog = true },
+                                onFormat = { diaryViewModel.applyFormat(it) }
+                            )
+
+                            Divider(color = Color(0xFF4285F4), thickness = 1.dp)
+
+                            BasicTextField(
+                                value = diaryViewModel.diaryText,
+                                onValueChange = diaryViewModel::updateDiaryText,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(editorScrollState),
+                                textStyle = LocalTextStyle.current.copy(
+                                    color = Color.Black,
+                                    lineHeight = 24.sp
+                                ),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.White)
+                                            .ruledBackground()
+                                            .padding(
+                                                start = 12.dp,
+                                                end = 12.dp,
+                                                top = 4.dp,   // ⭐ fine-tuned for baseline
+                                                bottom = 8.dp
+                                            )
+                                    ) {
+                                        innerTextField()
+                                    }
+                                }
+                            )
+                        }
+
+                    } else {
+
+                        // ---------- READ ONLY ----------
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White)
+                                .ruledBackground()
+                                .verticalScroll(previewScrollState)
+                                .padding(12.dp)
+                        ) {
+                            if (showPlaceholder) {
+                                EmptyDayPlaceholder()
+                            } else {
+                                Text(
+                                    text = diaryViewModel.diaryText.text,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    style = LocalTextStyle.current.copy(
+                                        color = Color.Black,
+                                        lineHeight = 24.sp
+                                    )
+                                )
+                            }
+                        }
+                    }
                 }
-
             }
+
 
             /* -------- TYPE PICKER -------- */
 
@@ -192,6 +498,11 @@ fun DiaryScreen() {
                             modifier = Modifier.clickable {
                                 showTypeDialog = false
                                 // insertion logic next step
+
+                                val template = templates.firstOrNull { it.label == type }
+                                template?.let {
+                                    diaryViewModel.insertTemplate(it)
+                                }
                             }
                         )
                     }
@@ -199,6 +510,23 @@ fun DiaryScreen() {
             }
         }
     }
+    LaunchedEffect(Unit) {
+        diaryViewModel.reinitializeIfEmpty()
+        diaryViewModel.backupEvents.collect { event ->
+            val message = when (event) {
+                is BackupEvent.Success -> event.message
+                is BackupEvent.Error -> event.message
+            }
+
+            snackbarHostState.showSnackbar(
+                message = message,
+                duration = SnackbarDuration.Short
+            )
+        }
+    }
+
+
+
     if (showCalendarPicker) {
         MonthYearPicker(
             initialDate = selectedDate,
@@ -209,7 +537,31 @@ fun DiaryScreen() {
             }
         )
     }
+
+    // 🔍 SEARCH SHEET
+    if (showSearch) {
+        SearchSheet(
+            onClose = {
+                showSearch = false
+                diaryViewModel.clearSearch()
+            },
+            onResultClick = { date ->
+                showSearch = false
+                animateToDate(date, 0)
+            }
+        )
+    }
+
+
+
+
 }
+
+
+
+
+
+
 
 @Composable
 fun MonthYearPicker(
@@ -276,11 +628,13 @@ fun MonthYearPicker(
                                             selectedMonth + 1,
                                             minOf(
                                                 initialDate.dayOfMonth,
-                                                LocalDate.of(
-                                                    selectedYear,
-                                                    selectedMonth + 1,
-                                                    1
-                                                ).lengthOfMonth()
+                                                LocalDate
+                                                    .of(
+                                                        selectedYear,
+                                                        selectedMonth + 1,
+                                                        1
+                                                    )
+                                                    .lengthOfMonth()
                                             )
                                         )
                                     )
@@ -303,9 +657,10 @@ fun MonthYearPicker(
 
 @Composable
 fun EditorToolbar(
-    onAddType: () -> Unit
+    enabled: Boolean,
+    onAddType: () -> Unit,
+    onFormat: (TextFormat) -> Unit
 ) {
-    val iconColor = Color.Black
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -313,27 +668,171 @@ fun EditorToolbar(
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Normal", color = iconColor ,modifier = Modifier.padding(horizontal = 8.dp))
-        IconButton(onClick = { /* bold later */ }) {
-            Text("B", color = iconColor ,fontWeight = FontWeight.Bold, )
+        IconButton(onClick = { onFormat(TextFormat.Bold) }) {
+            Text("B", fontWeight = FontWeight.Bold)
         }
-        IconButton(onClick = { /* italic later */ }) {
-            Text("I", color = iconColor,fontStyle = FontStyle.Italic)
+        IconButton(onClick = { onFormat(TextFormat.Italic) }) {
+            Text("I", fontStyle = FontStyle.Italic)
         }
-        IconButton(onClick = { /* underline later */ }) {
-            Text("U", color = iconColor,textDecoration = TextDecoration.Underline)
+        IconButton(onClick = { onFormat(TextFormat.Underline) }) {
+            Text("U", textDecoration = TextDecoration.Underline)
         }
-        IconButton(onClick = { /* color later */ }) {
-            Text("🎨")
-        }
-        IconButton(onClick = { /* bullet later */ }) {
-            Text("•",color = iconColor)
+
+
+        Spacer(Modifier.weight(1f))
+
+        IconButton(onClick = onAddType) {
+            Icon(
+                painter = painterResource(id = R.drawable.baseline_attach_file_24),
+                contentDescription = "Attach"
+            )
         }
 
         Spacer(Modifier.weight(1f))
 
         IconButton(onClick = onAddType) {
-            Icon(Icons.Default.Add,contentDescription = "Add type",tint=iconColor)
+            Icon(Icons.Default.Add, contentDescription = "Add")
         }
     }
 }
+
+@Composable
+fun EmptyDayPlaceholder(
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(top = 120.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "📖",
+            fontSize = 42.sp
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        Text(
+            text = "No entry for this day",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.Gray
+        )
+
+        Spacer(Modifier.height(6.dp))
+
+        Text(
+            text = "Tap Edit or start writing your thoughts",
+            fontSize = 14.sp,
+            color = Color.Gray.copy(alpha = 0.7f)
+        )
+    }
+}
+
+@Composable
+fun AutoSaveIndicator(state: DiaryViewModel.SaveState) {
+    val text = when (state) {
+        DiaryViewModel.SaveState.DIRTY -> "Typing…"
+        DiaryViewModel.SaveState.SAVING -> "Saving…"
+        DiaryViewModel.SaveState.SAVED -> "Saved"
+        DiaryViewModel.SaveState.IDLE -> ""
+    }
+
+    val color = when (state) {
+        DiaryViewModel.SaveState.DIRTY -> Color.Gray
+        DiaryViewModel.SaveState.SAVING -> Color(0xFFFB8C00)
+        DiaryViewModel.SaveState.SAVED -> Color(0xFF2E7D32)
+        DiaryViewModel.SaveState.IDLE -> Color.Transparent
+    }
+
+    if (text.isNotEmpty()) {
+        Text(
+            text = text,
+            color = color,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(end = 12.dp)
+        )
+    }
+}
+
+@Composable
+fun SearchSheet(
+    onClose: () -> Unit,
+    onResultClick: (LocalDate) -> Unit,
+    viewModel: DiaryViewModel = viewModel()
+) {
+    ModalBottomSheet(onDismissRequest = onClose) {
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp)
+        ) {
+
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Search",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Default.Close, contentDescription = "Close")
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Search field
+            OutlinedTextField(
+                value = viewModel.searchQuery,
+                onValueChange = viewModel::onSearchQueryChanged,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Search by date or content…") }
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            // Results
+            if (viewModel.searchResults.isEmpty()) {
+                Text(
+                    text = "No results",
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 24.dp)
+                )
+            } else {
+                LazyColumn {
+                    items(viewModel.searchResults) { diary ->
+                        ListItem(
+                            headlineContent = {
+                                Text(diary.date)
+                            },
+                            supportingContent = {
+                                Text(
+                                    diary.content,
+                                    maxLines = 2
+                                )
+                            },
+                            modifier = Modifier.clickable {
+                                onResultClick(LocalDate.parse(diary.date))
+                            }
+                        )
+                        Divider()
+                    }
+                }
+            }
+        }
+    }
+
+
+}
+
+
+
+
+
