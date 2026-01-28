@@ -45,11 +45,8 @@ import java.time.LocalDate
 @Composable
 fun BackupRestoreScreen(
     viewModel: DiaryViewModel = viewModel(),
-
-
-
-
-
+    onExportStarted: () -> Unit,
+    onExportFinished: () -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -66,10 +63,16 @@ fun BackupRestoreScreen(
     var previewDates by remember {
         mutableStateOf<List<LocalDate>>(emptyList())
     }
+
+
+    var isRestoring by remember { mutableStateOf(false) }
+
+
     val restoreJsonLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+        onExportFinished() // ⭐ re-enable biometric (success OR cancel)
+        if (uri == null || isRestoring) return@rememberLauncherForActivityResult
 
         scope.launch {
             try {
@@ -79,10 +82,8 @@ fun BackupRestoreScreen(
                     ?.use { it.readText() }
                     ?: return@launch
 
-                viewModel.restoreFromJson(
-                    json,
-                    DiaryViewModel.RestoreMode.OVERWRITE
-                )
+                pendingRestoreJson = json
+                showRestoreConfirm = true   // 🔥 show dialog
             } catch (e: Exception) {
                 snackbarHostState.showSnackbar("Invalid JSON file")
             }
@@ -97,6 +98,8 @@ fun BackupRestoreScreen(
     val importTxtLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
+        onExportFinished() // ⭐ re-enable biometric (success OR cancel)
+
         if (uri == null) return@rememberLauncherForActivityResult
 
         scope.launch {
@@ -114,6 +117,113 @@ fun BackupRestoreScreen(
 
     var totalEntries by remember { mutableStateOf<Int?>(null) }
     var lastBackupTime by remember { mutableStateOf<Long?>(null) }
+
+    var showAllDates by remember { mutableStateOf(false) }
+
+
+
+
+
+    val previewDatesState = remember {
+        mutableStateOf<List<LocalDate>>(emptyList())
+    }
+    if (previewDates.isEmpty()) {
+        Text(
+            text = "No dates detected",
+            color = MaterialTheme.colorScheme.error
+        )
+    } else {
+        previewDates.forEach { date ->
+            Text("• $date")
+        }
+    }
+
+    if (pendingImportText != null) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                pendingImportText = null
+                showAllDates = false
+            }
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+
+                Text(
+                    "Import preview",
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text("Detected $pendingImportCount entries")
+
+                Spacer(Modifier.height(12.dp))
+
+                val dateFormatter = remember {
+                    java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")
+                }
+
+                val visibleDates =
+                    if (showAllDates || previewDates.size <= 6) {
+                        previewDates
+                    } else {
+                        previewDates.take(3) +
+                                listOf<LocalDate?>(null) +
+                                previewDates.takeLast(3)
+                    }
+
+                visibleDates.forEach { date ->
+                    if (date == null) {
+                        Text("• …", modifier = Modifier.padding(vertical = 4.dp))
+                    } else {
+                        Text(
+                            "• ${date.format(dateFormatter)}",
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        )
+                    }
+                }
+
+                if (!showAllDates && previewDates.size > 6) {
+                    TextButton(
+                        onClick = { showAllDates = true }
+                    ) {
+                        Text("View all")
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                Button(
+                    enabled = pendingImportCount > 0,
+                    onClick = {
+                        scope.launch {
+                            val rawText = pendingImportText ?: return@launch
+
+                            // Get dates BEFORE import (for navigation)
+                            val dates = viewModel.previewImportDates(rawText)
+
+                            // Import
+                            viewModel.importFromTextSafe(rawText)
+
+                            // Jump to latest imported date
+                            dates.firstOrNull()?.let { importedDate ->
+                                viewModel.loadDiaryForDate(importedDate)
+                            }
+
+                            // Cleanup UI state
+                            pendingImportText = null
+                            showAllDates = false
+                        }
+                    }
+                ) {
+                    Text("Import")
+                }
+
+            }
+        }
+    }
+
+
+
 
     LaunchedEffect(Unit) {
         totalEntries = viewModel.getTotalEntryCount()
@@ -162,15 +272,23 @@ fun BackupRestoreScreen(
                     subtitle = "Full backup",
                     onClick = {
                         scope.launch {
-                            val json = viewModel.exportAsJson()
-                            val file = saveToDownloads(context, json, "json")
-                            BackupPreferences.setLastBackupTime(
-                                context,
-                                System.currentTimeMillis()
-                            )
-                            snackbarHostState.showSnackbar(
-                                "Saved to Downloads/EDiary/${file.name}"
-                            )
+
+                            onExportStarted()
+                            try {
+                                val json = viewModel.exportAsJson()
+                                val file = saveToDownloads(context, json, "json")
+                                BackupPreferences.setLastBackupTime(
+                                    context,
+                                    System.currentTimeMillis()
+                                )
+                                snackbarHostState.showSnackbar(
+                                    "Saved to Downloads/EDiary/${file.name}"
+                                )
+
+                            }finally {
+                                onExportFinished()
+                            }
+
                         }
                     }
                 )
@@ -183,15 +301,21 @@ fun BackupRestoreScreen(
                     subtitle = "Human-readable",
                     onClick = {
                         scope.launch {
-                            val md = viewModel.exportAsMarkdown()
-                            val file = saveToDownloads(context, md, "md")
-                            BackupPreferences.setLastBackupTime(
-                                context,
-                                System.currentTimeMillis()
-                            )
-                            snackbarHostState.showSnackbar(
-                                "Saved to Downloads/EDiary/${file.name}"
-                            )
+                            onExportStarted()
+try {
+    val md = viewModel.exportAsMarkdown()
+    val file = saveToDownloads(context, md, "md")
+    BackupPreferences.setLastBackupTime(
+        context,
+        System.currentTimeMillis()
+    )
+    snackbarHostState.showSnackbar(
+        "Saved to Downloads/EDiary/${file.name}"
+    )
+}finally {
+    onExportFinished()
+}
+
                         }
                     }
                 )
@@ -211,13 +335,16 @@ fun BackupRestoreScreen(
             item {
                 SettingsItem(
                     title = "Restore from JSON",
-                    subtitle = "Restore a backup file",
-                    onClick = {
-                        restoreJsonLauncher.launch(
-                            arrayOf("application/json")
-                        )
+                    subtitle = if (isRestoring) "Restoring…" else "Restore a backup file",
+                    onClick = if (isRestoring) null else {
+
+                        {
+                            onExportStarted() // ⭐ disable biometric temporarily
+
+                            restoreJsonLauncher.launch(arrayOf("application/json")) }
                     }
                 )
+
 
 
             }
@@ -227,6 +354,9 @@ fun BackupRestoreScreen(
                     title = "Import from TXT",
                     subtitle = "Date-based text import",
                     onClick = {
+                        onExportStarted() // ⭐ disable biometric temporarily
+
+
                         importTxtLauncher.launch(
                             arrayOf("text/plain")
                         )
@@ -245,6 +375,7 @@ fun BackupRestoreScreen(
                         if (!clip.isNullOrBlank()) {
                             pendingImportText = clip
                             pendingImportCount = viewModel.previewImportCount(clip)
+
                         } else {
                             scope.launch {
                                 snackbarHostState.showSnackbar("Clipboard empty")
@@ -287,45 +418,24 @@ fun BackupRestoreScreen(
             }
         }
     }
-    if (pendingImportText != null) {
-        ModalBottomSheet(
-            onDismissRequest = { pendingImportText = null }
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    "Import preview",
-                    style = MaterialTheme.typography.titleMedium
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                Text("Found $pendingImportCount entries")
-
-                Spacer(Modifier.height(16.dp))
-
-                Button(
-                    enabled = pendingImportCount > 0,
-                    onClick = {
-                        scope.launch {
-                            viewModel.importFromTextSafe(pendingImportText!!)
-                            pendingImportText = null
-                        }
-                    }
-                ) {
-                    Text("Import")
-                }
-            }
+    LaunchedEffect(pendingImportText) {
+        pendingImportText?.let {
+            previewDates = viewModel.previewImportDates(it)
         }
     }
-    LaunchedEffect(Unit) {
+
+
+    LaunchedEffect(viewModel) {
         viewModel.backupEvents.collect { event ->
-            val message = when (event) {
-                is DiaryViewModel.BackupEvent.Success -> event.message
-                is DiaryViewModel.BackupEvent.Error -> event.message
-            }
-            snackbarHostState.showSnackbar(message)
+            snackbarHostState.showSnackbar(
+                message = when (event) {
+                    is DiaryViewModel.BackupEvent.Success -> event.message
+                    is DiaryViewModel.BackupEvent.Error -> event.message
+                }
+            )
         }
     }
+
 
     if (showRestoreConfirm && pendingRestoreJson != null) {
         AlertDialog(
@@ -339,10 +449,13 @@ fun BackupRestoreScreen(
                 TextButton(
                     onClick = {
                         scope.launch {
+                            isRestoring = true
+
                             viewModel.restoreFromJson(
                                 pendingRestoreJson!!,
-                                DiaryViewModel.RestoreMode.OVERWRITE
+                                DiaryViewModel.RestoreMode.MERGE
                             )
+                            isRestoring = false
                             showRestoreConfirm = false
                             pendingRestoreJson = null
                         }

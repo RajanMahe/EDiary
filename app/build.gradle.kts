@@ -77,6 +77,7 @@ dependencies {
 
     implementation ("androidx.fragment:fragment-ktx:1.6.2")
 
+    implementation("androidx.lifecycle:lifecycle-process:2.8.6")
 
 
     kapt ("androidx.room:room-compiler:2.6.1")

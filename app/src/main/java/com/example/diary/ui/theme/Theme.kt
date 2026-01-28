@@ -37,6 +37,38 @@ private val LightColorScheme = lightColorScheme(
     */
 )
 
+//private val LightColors = lightColorScheme(
+//    primary = Color(0xFF4285F4),
+//    onPrimary = Color.White,
+//
+//    background = Color(0xFFFDFDFD),
+//    onBackground = Color.Black,
+//
+//    surface = Color.White,
+//    onSurface = Color.Black,
+//
+//    outline = Color(0xFF4285F4)
+//)
+
+//private val DarkColors = darkColorScheme(
+//    primary = Color(0xFF8AB4F8),
+//    onPrimary = Color.Black,
+//
+//    background = Color(0xFF121212),
+//    onBackground = Color.White,
+//
+//    surface = Color(0xFF1E1E1E),
+//    onSurface = Color.White,
+//
+//    outline = Color(0xFF8AB4F8)
+//)
+
+
+
+
+
+
+
 @Composable
 fun DiaryTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),

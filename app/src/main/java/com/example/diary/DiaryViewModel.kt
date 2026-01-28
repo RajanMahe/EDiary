@@ -307,9 +307,16 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
+//    private val _backupEvents =
+//        kotlinx.coroutines.flow.MutableSharedFlow<BackupEvent>()
+
+
     private val _backupEvents =
-        kotlinx.coroutines.flow.MutableSharedFlow<BackupEvent>()
-    val backupEvents = _backupEvents.asSharedFlow()
+        kotlinx.coroutines.flow.MutableSharedFlow<BackupEvent>(
+            replay = 0,
+            extraBufferCapacity = 1
+        )
+        val backupEvents = _backupEvents.asSharedFlow()
 
 
     suspend fun restoreFromJson(
@@ -320,11 +327,12 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
             val items = org.json.JSONArray(json)
 
             if (mode == RestoreMode.OVERWRITE) {
-                dao.clearAll()   // we will add this DAO method
+                dao.clearAll()   // ⚠️ requires DAO method (see step 2a)
             }
 
             for (i in 0 until items.length()) {
                 val obj = items.getJSONObject(i)
+
                 dao.insert(
                     DiaryEntity(
                         date = obj.getString("date"),

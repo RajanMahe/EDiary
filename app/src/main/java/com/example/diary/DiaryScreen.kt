@@ -1,6 +1,8 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 
 
+
+
 package com.example.diary
 
 import androidx.compose.foundation.rememberScrollState
@@ -42,20 +44,35 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.example.diary.DiaryViewModel.BackupEvent
+import com.example.diary.LockMode
+import androidx.fragment.app.FragmentActivity
+
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
+
+
+
 
 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiaryScreen() {
+fun DiaryScreen(
+    onExportStarted: () -> Unit,
+    onExportFinished: () -> Unit,
+    lockMode: LockMode
 
-    val context = LocalContext.current
+) {
+
+
+
 
     val diaryViewModel: DiaryViewModel = viewModel()
 
     /* ---------------- Restore Backup---------------- */
-    val scope = rememberCoroutineScope()
 
 
 
@@ -87,22 +104,52 @@ fun DiaryScreen() {
     /* ---------------- SNACKBAR ---------------- */
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
 
     /* ---------------- DATE STATE ---------------- */
 
     val iconColor = Color.Black
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+
+
+
+
+
+    var selectedDate by rememberSaveable { mutableStateOf<LocalDate?>(null) }
+
+    LaunchedEffect(Unit) {
+        BackupPreferences.lastOpenedDate(context).collect { saved ->
+            if (selectedDate == null) {
+                val resolvedDate =
+                    saved?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                        ?: LocalDate.now()
+
+                selectedDate = resolvedDate
+            }
+        }
+    }
+
+
+    val currentDate = selectedDate ?: LocalDate.now()
+
+
+
+
+
+
+
+
     var showCalendarPicker by remember { mutableStateOf(false) }
 
     val dateFormatter = remember { DateTimeFormatter.ofPattern("d MMM") }
-    val dateText = if (selectedDate == LocalDate.now()) {
-        "Today (${selectedDate.format(dateFormatter)})"
+    val dateText = if (currentDate == LocalDate.now()) {
+        "Today (${currentDate.format(dateFormatter)})"
     } else {
-        selectedDate.format(dateFormatter)
+        currentDate.format(dateFormatter)
     }
 
-    val isToday = selectedDate == LocalDate.now()
+    val isToday = currentDate == LocalDate.now()
     val showEditor = isToday || diaryViewModel.isEditMode
 
     val isEmptyEntry = diaryViewModel.diaryText.text.isBlank()
@@ -126,11 +173,18 @@ fun DiaryScreen() {
 // ✅ LOAD diary WHEN date changes
 
     LaunchedEffect(selectedDate) {
-        diaryViewModel.saveCurrentDiary()
-        diaryViewModel.loadDiaryForDate(selectedDate)
-        diaryViewModel.updateEditModeForDate(selectedDate)
+        selectedDate?.let { date ->
+            diaryViewModel.saveCurrentDiary()
+            diaryViewModel.loadDiaryForDate(date)
+            diaryViewModel.updateEditModeForDate(date)
 
+            BackupPreferences.setLastOpenedDate(
+                context,
+                date.toString()
+            )
+        }
     }
+
 
     var showSearch by remember { mutableStateOf(false) }
     val previewScrollState = rememberScrollState()
@@ -158,7 +212,6 @@ fun DiaryScreen() {
             slideOffsetX.animateTo(0f)
         }
     }
-    var showAppLockScreen by remember { mutableStateOf(false) }
 
 
     /* ---------------- App Lock ---------------- */
@@ -166,18 +219,33 @@ fun DiaryScreen() {
 
     var showLockDialog by remember { mutableStateOf(false) }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+
+
+
 
 
 
     /* ---------------- UI ---------------- */
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) },
 
-
-
         topBar = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Transparent)
+                    .windowInsetsPadding(WindowInsets.statusBars) // ✅ ONLY HERE
+            )
             TopAppBar(
+                modifier = Modifier
+                    .fillMaxWidth(),
+
+
+
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFF4285F4)
                 ),
@@ -252,59 +320,73 @@ fun DiaryScreen() {
                     }
 
 
-                        DropdownMenu(
-                            expanded = showExportMenu,
-                            onDismissRequest = { showExportMenu = false }
-                        ) {
+                    DropdownMenu(
+                        expanded = showExportMenu,
+                        onDismissRequest = { showExportMenu = false },
+                                modifier = Modifier
+                                .width(220.dp)
 
-                            DropdownMenuItem(
-                                text = { Text("App Lock") },
-                                onClick = {
-                                    showExportMenu = false
-                                    showBackupScreen = false
-                                    showLockDialog = true   // 👈 or trigger lock dialog
-                                }
-                            )
+                    ) {
 
-                            DropdownMenuItem(
-                                text = { Text("Backup & Restore") },
-                                onClick = {
-                                    showExportMenu = false
-                                    showBackupScreen = true
+                        AppLockToggle(
+                            currentMode = lockMode,
+                            onEnableRequested = {
+                                val activity = context as FragmentActivity
+
+                                BiometricAuthHelper(
+                                    activity = activity,
+                                    onSuccess = {
+                                        scope.launch {
+                                            BackupPreferences.setLockMode(context, LockMode.BIOMETRIC)
+                                            snackbarHostState.showSnackbar("App lock enabled")
+                                        }
+                                    },
+                                    onError = {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Authentication failed")
+                                        }
+                                    }
+                                ).authenticate()
+                            },
+                            onDisableRequested = {
+                                scope.launch {
+                                    BackupPreferences.setLockMode(context, LockMode.OFF)
+                                    snackbarHostState.showSnackbar("App lock disabled")
                                 }
-                            )
-                        }
+                            }
+                        )
+
+
+
+
+
+
+
+
+                        DropdownMenuItem(
+                            text = { Text("Backup & Restore") },
+                            onClick = {
+                                showExportMenu = false
+                                showBackupScreen = true
+                            }
+                        )
+                    }
 
 
                 }
 
             )
-            if (showLockDialog) {
-                AlertDialog(
-                    onDismissRequest = { showLockDialog = false },
-                    title = { Text("App Lock") },
-                    text = {
-                        Column {
-                            LockOption("Off", LockMode.OFF)
-                            LockOption("Biometric / Face", LockMode.BIOMETRIC)
-                        }
-                    },
-                    confirmButton = {},
-                    dismissButton = {
-                        TextButton(onClick = { showLockDialog = false }) {
-                            Text("Close")
-                        }
-                    }
-                )
-            }
+
 
             if (showBackupScreen) {
                 BackupRestoreScreen(
-                    viewModel = diaryViewModel, // ✅ SAME INSTANCE
-
-                    onBack = { showBackupScreen = false }
+                    viewModel = diaryViewModel,
+                    onBack = { showBackupScreen = false },
+                    onExportStarted = onExportStarted,
+                    onExportFinished = onExportFinished
                 )
             }
+
 
 
 
@@ -329,9 +411,9 @@ fun DiaryScreen() {
             ) {
                 Spacer(Modifier.weight(1f))
 
-                Text("<<",Modifier.clickable { animateToDate(selectedDate.plusDays(-2), +1) },color = iconColor)
+                Text("<<",Modifier.clickable { animateToDate(currentDate.plusDays(-2), +1) },color = iconColor)
                 Spacer(Modifier.width(12.dp))
-                Text("<", Modifier.clickable { animateToDate(selectedDate.plusDays(-1), +1) },color = iconColor)
+                Text("<", Modifier.clickable { animateToDate(currentDate.plusDays(-1), +1) },color = iconColor)
 
                 Spacer(Modifier.width(24.dp))
 
@@ -344,9 +426,11 @@ fun DiaryScreen() {
 
                 Spacer(Modifier.width(24.dp))
 
-                Text(">", Modifier.clickable { animateToDate(selectedDate.plusDays(1), -1) },color = iconColor)
+                Text(">", Modifier.clickable { animateToDate(currentDate.plusDays(1)
+                    , -1) },color = iconColor)
                 Spacer(Modifier.width(12.dp))
-                Text(">>", Modifier.clickable { animateToDate(selectedDate.plusDays(2), -1) },color = iconColor)
+                Text(">>", Modifier.clickable { animateToDate(currentDate.plusDays(2)
+                    , -1) },color = iconColor)
 
                 Spacer(Modifier.weight(1f))
 
@@ -388,10 +472,12 @@ fun DiaryScreen() {
                                 onDragEnd = {
                                     when {
                                         totalDrag < -120f ->
-                                            animateToDate(selectedDate.plusDays(1), -1)
+                                            animateToDate(currentDate.plusDays(1)
+                                                , -1)
 
                                         totalDrag > 120f ->
-                                            animateToDate(selectedDate.minusDays(1), +1)
+                                            animateToDate(currentDate.minusDays(1)
+                                                , +1)
 
                                         else ->
                                             scope.launch { slideOffsetX.animateTo(0f) }
@@ -418,7 +504,9 @@ fun DiaryScreen() {
 
                     if (showEditor) {
 
-                        Column(modifier = Modifier.fillMaxSize()) {
+                        Column(modifier = Modifier
+                            .fillMaxSize()
+                            ) {
 
                             EditorToolbar(
                                 enabled = true,
@@ -433,6 +521,8 @@ fun DiaryScreen() {
                                 onValueChange = diaryViewModel::updateDiaryText,
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    .imePadding()        // ⭐ THIS IS THE KEY
+                                    .navigationBarsPadding()
                                     .verticalScroll(editorScrollState),
                                 textStyle = LocalTextStyle.current.copy(
                                     color = Color.Black,
@@ -463,9 +553,9 @@ fun DiaryScreen() {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .verticalScroll(previewScrollState)
                                 .background(Color.White)
                                 .ruledBackground()
-                                .verticalScroll(previewScrollState)
                                 .padding(12.dp)
                         ) {
                             if (showPlaceholder) {
@@ -529,7 +619,7 @@ fun DiaryScreen() {
 
     if (showCalendarPicker) {
         MonthYearPicker(
-            initialDate = selectedDate,
+            initialDate = currentDate,
             onDismiss = { showCalendarPicker = false },
             onDateSelected = { newDate ->
                 selectedDate = newDate
@@ -555,7 +645,7 @@ fun DiaryScreen() {
 
 
 
-}
+ }
 
 
 
@@ -612,7 +702,7 @@ fun MonthYearPicker(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
+                ) {
                     row.forEachIndexed { colIndex, month ->
                         val index = rowIndex * 3 + colIndex
                         val isSelected = index == selectedMonth
@@ -831,7 +921,6 @@ fun SearchSheet(
 
 
 }
-
 
 
 

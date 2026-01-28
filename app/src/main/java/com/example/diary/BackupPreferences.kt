@@ -1,24 +1,24 @@
 package com.example.diary
 
 import android.content.Context
-import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import androidx.datastore.preferences.core.longPreferencesKey
-
 
 private val Context.dataStore by preferencesDataStore("backup_prefs")
 
 object BackupPreferences {
 
-    private val LAST_BACKUP_TIME = longPreferencesKey("last_backup_time")
-    private val LOCK_MODE = longPreferencesKey("lock_mode")
+    /* ---------------- KEYS ---------------- */
 
-    suspend fun setLastBackupTime(
-        context: Context,
-        timestamp: Long
-    ) {
+    private val LAST_BACKUP_TIME = longPreferencesKey("last_backup_time")
+    private val LOCK_MODE_KEY = stringPreferencesKey("lock_mode")
+    private val LAST_OPENED_DATE = stringPreferencesKey("last_opened_date")
+
+    /* ---------------- BACKUP ---------------- */
+
+    suspend fun setLastBackupTime(context: Context, timestamp: Long) {
         context.dataStore.edit { prefs ->
             prefs[LAST_BACKUP_TIME] = timestamp
         }
@@ -29,16 +29,42 @@ object BackupPreferences {
             prefs[LAST_BACKUP_TIME]
         }
 
+    /* ---------------- APP LOCK ---------------- */
+
     suspend fun setLockMode(context: Context, mode: LockMode) {
         context.dataStore.edit { prefs ->
-            prefs[LOCK_MODE] = mode.ordinal.toLong()
+            prefs[LOCK_MODE_KEY] = mode.name
         }
     }
 
     fun lockMode(context: Context): Flow<LockMode> =
         context.dataStore.data.map { prefs ->
-            LockMode.values()[
-                prefs[LOCK_MODE]?.toInt() ?: LockMode.OFF.ordinal
-            ]
+
+            // ✅ NEW FORMAT (String)
+            prefs[stringPreferencesKey("lock_mode")]
+                ?.let { runCatching { LockMode.valueOf(it) }.getOrNull() }
+
+            // ✅ OLD FORMAT (Long) — backward compatibility
+                ?: prefs[longPreferencesKey("lock_mode")]
+                    ?.let { ordinal ->
+                        LockMode.values().getOrNull(ordinal.toInt())
+                    }
+
+                // ✅ SAFE DEFAULT
+                ?: LockMode.OFF
         }
+
+
+    /* ---------------- LAST OPENED DATE ---------------- */
+
+    fun lastOpenedDate(context: Context): Flow<String?> =
+        context.dataStore.data.map { prefs ->
+            prefs[LAST_OPENED_DATE]
+        }
+
+    suspend fun setLastOpenedDate(context: Context, date: String) {
+        context.dataStore.edit { prefs ->
+            prefs[LAST_OPENED_DATE] = date
+        }
+    }
 }

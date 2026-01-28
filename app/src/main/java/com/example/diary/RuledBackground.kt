@@ -9,7 +9,7 @@ import androidx.compose.ui.geometry.Offset
 
 fun Modifier.ruledBackground(
     lineColor: Color = Color(0xFFE0E0E0),
-    lineSpacing: Dp = 24.dp
+    lineSpacing: Dp = 24.5.dp
 ): Modifier = this.drawBehind {
     val spacingPx = lineSpacing.toPx()
     var y = spacingPx
