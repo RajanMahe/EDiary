@@ -53,6 +53,16 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
+
+
+
 
 
 
@@ -87,6 +97,7 @@ fun DiaryScreen(
     var pendingImportText by remember { mutableStateOf<String?>(null) }
     var pendingImportCount by remember { mutableStateOf(0) }
     var showBackupScreen by remember { mutableStateOf(false) }
+    var isRestoreInProgress by rememberSaveable { mutableStateOf(false) }
 
 
 
@@ -110,7 +121,8 @@ fun DiaryScreen(
 
     /* ---------------- DATE STATE ---------------- */
 
-    val iconColor = Color.Black
+    val iconColor = MaterialTheme.colorScheme.onSurface
+
 
 
 
@@ -220,6 +232,44 @@ fun DiaryScreen(
     var showLockDialog by remember { mutableStateOf(false) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
+    var isUnlocked by rememberSaveable { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner, lockMode, isRestoreInProgress) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (
+                    lockMode != LockMode.OFF &&
+                    !isUnlocked &&
+                    !isRestoreInProgress   // ⭐ KEY FIX
+                ) {
+                    showLockDialog = true
+                }
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+
+
+
+    /* ---------------- theme Rulled line for unruled background ---------------- */
+
+    val isDark = isSystemInDarkTheme()
+
+    val ruledLineColor = if (isDark) {
+        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
+    } else {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+    }
+
+    val ruledLineThickness = if (isDark) 0.8f else 1.2f
+
+
 
 
 
@@ -243,35 +293,30 @@ fun DiaryScreen(
             TopAppBar(
                 modifier = Modifier
                     .fillMaxWidth(),
-
-
-
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF4285F4)
+                    containerColor = MaterialTheme.colorScheme.primary
                 ),
+                navigationIcon = {
+                    Image(
+                    painter = painterResource(id = R.drawable.ic_app_logo),
+                    contentDescription = "App Logo",
+                    modifier = Modifier
+                        .height(80.dp) ,// adjust if needed
 
-                title = {
-                    Column {
-                        Text(
-                            text = "EDiary",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
-                        )
+                    )
 
-
-                    }
                 },
 
+                title = {
 
-
+                },
 
                 actions = {
                     IconButton(onClick = { showSearch = true }) {
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = "Search",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                     // ✅ SAVE INDICATOR — ONLY IN EDIT MODE
@@ -280,7 +325,7 @@ fun DiaryScreen(
                             DiaryViewModel.SaveState.SAVING -> {
                                 Text(
                                     text = "Saving…",
-                                    color = Color.White.copy(alpha = 0.7f),
+                                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f),
                                     fontSize = 12.sp,
                                     modifier = Modifier.padding(end = 12.dp)
                                 )
@@ -288,7 +333,7 @@ fun DiaryScreen(
                             DiaryViewModel.SaveState.SAVED -> {
                                 Text(
                                     text = "Saved",
-                                    color = Color(0xFFB9F6CA),
+                                    color = MaterialTheme.colorScheme.onSecondary,
                                     fontSize = 12.sp,
                                     modifier = Modifier.padding(end = 12.dp)
                                 )
@@ -304,7 +349,7 @@ fun DiaryScreen(
                     if (!isToday && !diaryViewModel.isEditMode) {
                         Text(
                             text = "Edit",
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier
                                 .padding(end = 12.dp)
                                 .clickable { diaryViewModel.enableEditMode() },
@@ -315,7 +360,7 @@ fun DiaryScreen(
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "More",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
 
@@ -355,41 +400,37 @@ fun DiaryScreen(
                                 }
                             }
                         )
-
-
-
-
-
-
-
-
                         DropdownMenuItem(
                             text = { Text("Backup & Restore") },
                             onClick = {
                                 showExportMenu = false
                                 showBackupScreen = true
+                                isRestoreInProgress = true   // ⭐ ADD THIS
                             }
                         )
                     }
-
-
                 }
-
             )
-
-
             if (showBackupScreen) {
                 BackupRestoreScreen(
                     viewModel = diaryViewModel,
-                    onBack = { showBackupScreen = false },
-                    onExportStarted = onExportStarted,
-                    onExportFinished = onExportFinished
+                    onBack = { showBackupScreen = false
+                        isRestoreInProgress = false  // ⭐ ADD THIS
+
+                    },
+                    onExportStarted = {
+                        isRestoreInProgress = true  // ⭐ ADD THIS
+                        onExportStarted()
+
+
+                    },
+                    onExportFinished = {
+                        isRestoreInProgress = false  // ⭐ ADD THIS
+                        onExportFinished()
+
+                    }
                 )
             }
-
-
-
-
         }
     ) { padding ->
 
@@ -404,7 +445,7 @@ fun DiaryScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.White)
+                    .background(MaterialTheme.colorScheme.background)
                     .padding(vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
 
@@ -440,7 +481,7 @@ fun DiaryScreen(
                     modifier = Modifier.clickable {
                         selectedDate = LocalDate.now()
                     },
-                    tint = iconColor
+                    tint = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(Modifier.width(24.dp))
 
@@ -448,7 +489,7 @@ fun DiaryScreen(
 
 
             Divider(
-                color = Color(0xFF4285F4),
+                color = MaterialTheme.colorScheme.primary,
                 thickness = 1.dp
             )
 
@@ -514,7 +555,7 @@ fun DiaryScreen(
                                 onFormat = { diaryViewModel.applyFormat(it) }
                             )
 
-                            Divider(color = Color(0xFF4285F4), thickness = 1.dp)
+                            Divider(color = MaterialTheme.colorScheme.primary, thickness = 1.dp)
 
                             BasicTextField(
                                 value = diaryViewModel.diaryText,
@@ -525,15 +566,16 @@ fun DiaryScreen(
                                     .navigationBarsPadding()
                                     .verticalScroll(editorScrollState),
                                 textStyle = LocalTextStyle.current.copy(
-                                    color = Color.Black,
+                                    color = MaterialTheme.colorScheme.onBackground,
                                     lineHeight = 24.sp
                                 ),
                                 decorationBox = { innerTextField ->
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .background(Color.White)
-                                            .ruledBackground()
+                                            .background(MaterialTheme.colorScheme.background)
+                                            .ruledBackground(lineColor = ruledLineColor,
+                                                strokeWidth = ruledLineThickness)
                                             .padding(
                                                 start = 12.dp,
                                                 end = 12.dp,
@@ -554,8 +596,9 @@ fun DiaryScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .verticalScroll(previewScrollState)
-                                .background(Color.White)
-                                .ruledBackground()
+                                .background(MaterialTheme.colorScheme.background)
+                                .ruledBackground(lineColor = ruledLineColor,
+                                    strokeWidth = ruledLineThickness)
                                 .padding(12.dp)
                         ) {
                             if (showPlaceholder) {
@@ -567,7 +610,7 @@ fun DiaryScreen(
                                         .fillMaxSize()
                                         .padding(horizontal = 12.dp, vertical = 8.dp),
                                     style = LocalTextStyle.current.copy(
-                                        color = Color.Black,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                         lineHeight = 24.sp
                                     )
                                 )
@@ -692,7 +735,7 @@ fun MonthYearPicker(
             }
         }
 
-        Divider(color = Color(0xFF4285F4))
+        Divider(color = MaterialTheme.colorScheme.primary)
 
         // MONTH GRID
         Column(
@@ -730,9 +773,9 @@ fun MonthYearPicker(
                                     )
                                 },
                             color = if (isSelected)
-                                Color(0xFF4285F4)
+                                MaterialTheme.colorScheme.primary
                             else
-                                Color.Black,
+                                MaterialTheme.colorScheme.onBackground ,
                             fontWeight = if (isSelected)
                                 FontWeight.Bold
                             else
@@ -754,30 +797,30 @@ fun EditorToolbar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.background)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = { onFormat(TextFormat.Bold) }) {
-            Text("B", fontWeight = FontWeight.Bold)
-        }
-        IconButton(onClick = { onFormat(TextFormat.Italic) }) {
-            Text("I", fontStyle = FontStyle.Italic)
-        }
-        IconButton(onClick = { onFormat(TextFormat.Underline) }) {
-            Text("U", textDecoration = TextDecoration.Underline)
-        }
-
-
-        Spacer(Modifier.weight(1f))
-
-        IconButton(onClick = onAddType) {
-            Icon(
-                painter = painterResource(id = R.drawable.baseline_attach_file_24),
-                contentDescription = "Attach"
-            )
-        }
-
+//        IconButton(onClick = { onFormat(TextFormat.Bold) }) {
+//            Text("B", fontWeight = FontWeight.Bold)
+//        }
+//        IconButton(onClick = { onFormat(TextFormat.Italic) }) {
+//            Text("I", fontStyle = FontStyle.Italic)
+//        }
+//        IconButton(onClick = { onFormat(TextFormat.Underline) }) {
+//            Text("U", textDecoration = TextDecoration.Underline)
+//        }
+//
+//
+//        Spacer(Modifier.weight(1f))
+//
+//        IconButton(onClick = onAddType) {
+//            Icon(
+//                painter = painterResource(id = R.drawable.baseline_attach_file_24),
+//                contentDescription = "Attach"
+//            )
+//        }
+//
         Spacer(Modifier.weight(1f))
 
         IconButton(onClick = onAddType) {
@@ -807,7 +850,7 @@ fun EmptyDayPlaceholder(
             text = "No entry for this day",
             fontSize = 18.sp,
             fontWeight = FontWeight.Medium,
-            color = Color.Gray
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         Spacer(Modifier.height(6.dp))
@@ -815,7 +858,7 @@ fun EmptyDayPlaceholder(
         Text(
             text = "Tap Edit or start writing your thoughts",
             fontSize = 14.sp,
-            color = Color.Gray.copy(alpha = 0.7f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }
 }
@@ -830,9 +873,9 @@ fun AutoSaveIndicator(state: DiaryViewModel.SaveState) {
     }
 
     val color = when (state) {
-        DiaryViewModel.SaveState.DIRTY -> Color.Gray
-        DiaryViewModel.SaveState.SAVING -> Color(0xFFFB8C00)
-        DiaryViewModel.SaveState.SAVED -> Color(0xFF2E7D32)
+        DiaryViewModel.SaveState.DIRTY -> MaterialTheme.colorScheme.onSurfaceVariant
+        DiaryViewModel.SaveState.SAVING -> MaterialTheme.colorScheme.secondary
+        DiaryViewModel.SaveState.SAVED -> MaterialTheme.colorScheme.primary
         DiaryViewModel.SaveState.IDLE -> Color.Transparent
     }
 
@@ -868,7 +911,9 @@ fun SearchSheet(
                 Text(
                     text = "Search",
                     fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+
                 )
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onClose) {
@@ -883,7 +928,13 @@ fun SearchSheet(
                 value = viewModel.searchQuery,
                 onValueChange = viewModel::onSearchQueryChanged,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search by date or content…") }
+                placeholder = { Text("Search by date or content…") },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onBackground
+                )
             )
 
             Spacer(Modifier.height(12.dp))
@@ -892,7 +943,7 @@ fun SearchSheet(
             if (viewModel.searchResults.isEmpty()) {
                 Text(
                     text = "No results",
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 24.dp)
                 )
             } else {
