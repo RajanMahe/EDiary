@@ -5,6 +5,7 @@
 
 package com.example.diary
 
+import DiaryHandwritingFont
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.remember
@@ -48,17 +49,21 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import com.example.diary.DiaryViewModel.BackupEvent
 import com.example.diary.LockMode
 import androidx.fragment.app.FragmentActivity
-
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
-
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 
 
@@ -73,7 +78,8 @@ import androidx.compose.ui.res.painterResource
 fun DiaryScreen(
     onExportStarted: () -> Unit,
     onExportFinished: () -> Unit,
-    lockMode: LockMode
+    lockMode: LockMode,
+    themeMode: ThemeMode
 
 ) {
 
@@ -130,6 +136,10 @@ fun DiaryScreen(
 
     var selectedDate by rememberSaveable { mutableStateOf<LocalDate?>(null) }
 
+    var pageStack by remember {
+        mutableStateOf<Map<Int, DiaryViewModel.DiaryPageState>>(emptyMap())
+    }
+
     LaunchedEffect(Unit) {
         BackupPreferences.lastOpenedDate(context).collect { saved ->
             if (selectedDate == null) {
@@ -184,16 +194,32 @@ fun DiaryScreen(
 
 // ✅ LOAD diary WHEN date changes
 
+
+
+
+
     LaunchedEffect(selectedDate) {
         selectedDate?.let { date ->
+
+//            diaryViewModel.saveCurrentDiary()
+//            pageStack = diaryViewModel.preloadPages(date)
+//            diaryViewModel.loadDiaryForDate(date)
+//            diaryViewModel.updateEditModeForDate(date)
+//            BackupPreferences.setLastOpenedDate(
+//                context,
+//                date.toString()
+//            )
+
             diaryViewModel.saveCurrentDiary()
+
             diaryViewModel.loadDiaryForDate(date)
+
+            pageStack = diaryViewModel.preloadPages(date)
+
             diaryViewModel.updateEditModeForDate(date)
 
-            BackupPreferences.setLastOpenedDate(
-                context,
-                date.toString()
-            )
+            BackupPreferences.setLastOpenedDate(context, date.toString())
+
         }
     }
 
@@ -206,11 +232,25 @@ fun DiaryScreen(
     var showTypeDialog by remember { mutableStateOf(false) }
 
     /* ---------------- ANIMATION ---------------- */
+    var isAnimating by remember { mutableStateOf(false) }
+
     val slideOffsetX = remember { Animatable(0f) }
-    val screenWidth = 400f // safe constant for now
+//    val screenWidth = 400f // safe constant for now
+
+
+    val screenWidth = with(LocalDensity.current) {
+        LocalConfiguration.current.screenWidthDp.dp.toPx()
+    }
+
 
     fun animateToDate(newDate: LocalDate, direction: Int) {
+
+        if (isAnimating) return  // 🚫 block re-entry
+
         scope.launch {
+
+            isAnimating = true
+
             // slide current page out
             slideOffsetX.animateTo(direction * screenWidth)
 
@@ -221,9 +261,50 @@ fun DiaryScreen(
             slideOffsetX.snapTo(-direction * screenWidth)
 
             // slide new page in
-            slideOffsetX.animateTo(0f)
+            slideOffsetX.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    stiffness = Spring.StiffnessMedium,
+                    dampingRatio = Spring.DampingRatioLowBouncy
+                )
+            )
+            withFrameNanos { }
+            isAnimating = false
         }
     }
+
+    // Normalize swipe progress (0f → 1f)
+    val swipeProgress by remember {
+        derivedStateOf {
+            (kotlin.math.abs(slideOffsetX.value) / screenWidth)
+                .coerceIn(0f, 1f)
+        }
+    }
+
+// Fade slightly while swiping
+    val pageAlpha by remember {
+        derivedStateOf {
+            1f - (swipeProgress * 0.12f) // very subtle
+        }
+    }
+
+// Elevation for paper shadow
+    val pageElevation by remember {
+        derivedStateOf {
+            8.dp * swipeProgress
+        }
+    }
+
+    val shadowOffsetX by remember {
+        derivedStateOf {
+            if (slideOffsetX.value > 0) -6f else 6f
+        }
+    }
+
+
+
+
+
 
 
     /* ---------------- App Lock ---------------- */
@@ -268,6 +349,14 @@ fun DiaryScreen(
     }
 
     val ruledLineThickness = if (isDark) 0.8f else 1.2f
+
+    val cursorColor = if (isDark) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
+    val pageShape = MaterialTheme.shapes.medium
 
 
 
@@ -400,6 +489,32 @@ fun DiaryScreen(
                                 }
                             }
                         )
+
+                        Divider()
+
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = if (themeMode == ThemeMode.DARK)
+                                        "Switch to Light Mode"
+                                    else
+                                        "Switch to Dark Mode"
+                                )
+                            },
+                            onClick = {
+                                scope.launch {
+                                    val newMode =
+                                        if (themeMode == ThemeMode.DARK)
+                                            ThemeMode.LIGHT
+                                        else
+                                            ThemeMode.DARK
+
+                                    BackupPreferences.setThemeMode(context, newMode)
+                                }
+                            }
+                        )
+
+
                         DropdownMenuItem(
                             text = { Text("Backup & Restore") },
                             onClick = {
@@ -499,126 +614,243 @@ fun DiaryScreen(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .pointerInput(selectedDate, showEditor) {
-                        if (!showEditor) {
+                    .pointerInput(selectedDate, showEditor,isAnimating) {
+                        if (!showEditor && !isAnimating) {
                             var totalDrag = 0f
 
                             detectHorizontalDragGestures(
                                 onHorizontalDrag = { _, dragAmount ->
                                     totalDrag += dragAmount
+                                    val resistanceFactor = 0.75f
+                                    val resistedDrag = totalDrag * resistanceFactor
+
                                     scope.launch {
                                         slideOffsetX.snapTo(totalDrag)
                                     }
                                 },
                                 onDragEnd = {
-                                    when {
-                                        totalDrag < -120f ->
-                                            animateToDate(currentDate.plusDays(1)
-                                                , -1)
+                                    val threshold = screenWidth * 0.18f
 
-                                        totalDrag > 120f ->
-                                            animateToDate(currentDate.minusDays(1)
-                                                , +1)
+                                    when {
+                                        totalDrag < -threshold ->
+                                            animateToDate(
+                                                currentDate.plusDays(1), -1
+                                            )
+
+                                        totalDrag > threshold ->
+                                            animateToDate(
+                                                currentDate.minusDays(1), +1
+                                            )
 
                                         else ->
-                                            scope.launch { slideOffsetX.animateTo(0f) }
+                                            scope.launch {
+                                                slideOffsetX.animateTo(
+                                                    targetValue = 0f,
+                                                    animationSpec = spring(
+
+                                                        stiffness = 350f,              // heavier feel
+                                                        dampingRatio = 0.9f            // no bounce
+
+//                                                        stiffness = Spring.StiffnessMediumLow,
+//                                                        dampingRatio = Spring.DampingRatioMediumBouncy
+                                                    )
+                                                )
+                                            }
                                     }
                                     totalDrag = 0f
                                 },
-                                onDragCancel = {
-                                    scope.launch { slideOffsetX.animateTo(0f) }
-                                    totalDrag = 0f
-                                }
+//                                onDragCancel = {
+//                                    scope.launch { slideOffsetX.animateTo(0f) }
+//                                    totalDrag = 0f
+//                                }
                             )
                         }
                     }
             ) {
 
                 // ---------- CONTENT ----------
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            translationX = slideOffsetX.value
-                        }
-                ) {
+//                Box(
+//                    modifier = Modifier
+//                        .fillMaxSize()
+//                        .graphicsLayer {
+//                            translationX = slideOffsetX.value
+//                            alpha = pageAlpha
+//                            shadowElevation = pageElevation.toPx()
+//                            shape = pageShape
+//                            clip = true
+//                        }
+//                )
 
-                    if (showEditor) {
+                // ---------- PAGE STACK (Google Photos style) ----------
+                Box(modifier = Modifier.fillMaxSize()) {
 
-                        Column(modifier = Modifier
-                            .fillMaxSize()
+                    // ◀ PREVIOUS DAY (already loaded, blurred)
+                    pageStack[-1]?.let { page ->
+                        DiaryPage(
+                            text = page.text,
+                            ruledLineColor = ruledLineColor,
+                            ruledLineThickness = ruledLineThickness,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = slideOffsetX.value - screenWidth
+                                    alpha = 0.6f
+                                }
+                                .blur(8.dp)
+                        )
+                    }
+
+                    // ⬛ CURRENT DAY (sharp, interactive)
+                    pageStack[0]?.let { page ->
+
+                        if (showEditor) {
+
+                            // ✅ EDITOR — NO animation, NO graphicsLayer
+                            Column(
+                                modifier = Modifier.fillMaxSize()
                             ) {
 
-                            EditorToolbar(
-                                enabled = true,
-                                onAddType = { showTypeDialog = true },
-                                onFormat = { diaryViewModel.applyFormat(it) }
-                            )
+                                EditorToolbar(
+                                    enabled = true,
+                                    onAddType = { showTypeDialog = true },
+                                    onFormat = { diaryViewModel.applyFormat(it) }
+                                )
 
-                            Divider(color = MaterialTheme.colorScheme.primary, thickness = 1.dp)
+                                Divider(color = MaterialTheme.colorScheme.primary, thickness = 1.dp)
 
-                            BasicTextField(
-                                value = diaryViewModel.diaryText,
-                                onValueChange = diaryViewModel::updateDiaryText,
+                                BasicTextField(
+                                    value = diaryViewModel.diaryText,
+                                    onValueChange = diaryViewModel::updateDiaryText,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(editorScrollState) // ✅ SAFE
+                                        .imePadding()
+                                        .navigationBarsPadding(),
+//                                    textStyle = LocalTextStyle.current.copy(
+//                                        color = MaterialTheme.colorScheme.onBackground,
+//                                        lineHeight = 24.sp
+//                                    ),
+                                    textStyle = LocalTextStyle.current.copy(
+                                        fontFamily = DiaryHandwritingFont,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        fontSize = 18.sp,
+                                        lineHeight = 28.sp,
+                                        letterSpacing = 0.3.sp
+                                    ),
+
+                                    cursorBrush = SolidColor(cursorColor),
+                                    decorationBox = { inner ->
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(MaterialTheme.colorScheme.background)
+                                                .ruledBackground(
+                                                    lineColor = ruledLineColor,
+                                                    strokeWidth = ruledLineThickness
+                                                )
+                                                .padding(12.dp)
+                                        ) {
+                                            inner()
+                                        }
+                                    }
+                                )
+                            }
+
+                        } else {
+
+                            // ✅ PREVIEW — animated
+                            Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .imePadding()        // ⭐ THIS IS THE KEY
-                                    .navigationBarsPadding()
-                                    .verticalScroll(editorScrollState),
-                                textStyle = LocalTextStyle.current.copy(
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    lineHeight = 24.sp
-                                ),
-                                decorationBox = { innerTextField ->
+                                    .ruledBackground(
+                                        lineColor = ruledLineColor,
+                                        strokeWidth = ruledLineThickness
+                                    )
+//                                    .graphicsLayer {
+//                                        translationX = slideOffsetX.value
+//                                        alpha = pageAlpha
+//                                        shadowElevation = pageElevation.toPx()
+//                                        shape = pageShape
+//                                        clip = true
+//                                    }
+                                    .graphicsLayer {
+                                        translationX = slideOffsetX.value
+
+                                        // 📄 Slight page tilt (realism boost)
+                                        rotationY = (slideOffsetX.value / screenWidth) * 4f
+
+                                        // Subtle scale illusion
+                                        val progress = kotlin.math.abs(slideOffsetX.value) / screenWidth
+                                        val scale = 1f - (progress * 0.03f)
+                                        scaleX = scale
+                                        scaleY = scale
+
+                                        alpha = pageAlpha
+
+                                        cameraDistance = 12f * density
+                                    }
+
+
+                            ) {
+
+
+
+                                if (showPlaceholder) {
+                                    EmptyDayPlaceholder(Modifier.fillMaxSize()
+                                        .ruledBackground(
+                                            lineColor = ruledLineColor,
+                                            strokeWidth = ruledLineThickness
+                                        ))
+                                } else {
+
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .background(MaterialTheme.colorScheme.background)
-                                            .ruledBackground(lineColor = ruledLineColor,
-                                                strokeWidth = ruledLineThickness)
-                                            .padding(
-                                                start = 12.dp,
-                                                end = 12.dp,
-                                                top = 4.dp,   // ⭐ fine-tuned for baseline
-                                                bottom = 8.dp
-                                            )
+                                            .verticalScroll(previewScrollState) // ✅ SINGLE scroll
                                     ) {
-                                        innerTextField()
+                                        DiaryPage(
+                                            text = page.text,
+                                            ruledLineColor = ruledLineColor,
+                                            ruledLineThickness = ruledLineThickness,
+                                            modifier = Modifier.fillMaxSize()
+                                                .ruledBackground(
+                                                    lineColor = ruledLineColor,
+                                                    strokeWidth = ruledLineThickness
+                                                )
+                                        )
                                     }
                                 }
-                            )
-                        }
 
-                    } else {
 
-                        // ---------- READ ONLY ----------
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(previewScrollState)
-                                .background(MaterialTheme.colorScheme.background)
-                                .ruledBackground(lineColor = ruledLineColor,
-                                    strokeWidth = ruledLineThickness)
-                                .padding(12.dp)
-                        ) {
-                            if (showPlaceholder) {
-                                EmptyDayPlaceholder()
-                            } else {
-                                Text(
-                                    text = diaryViewModel.diaryText.text,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    style = LocalTextStyle.current.copy(
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        lineHeight = 24.sp
-                                    )
-                                )
+
                             }
                         }
                     }
+
+
+                    // ▶ NEXT DAY (already loaded, blurred)
+                    pageStack[1]?.let { page ->
+                        DiaryPage(
+                            text = page.text,
+                            ruledLineColor = ruledLineColor,
+                            ruledLineThickness = ruledLineThickness,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = slideOffsetX.value + screenWidth
+                                    alpha = 0.6f
+                                }
+                                .blur(8.dp)
+                        )
+                    }
                 }
-            }
+
+
+
+
+
+                }
+
 
 
             /* -------- TYPE PICKER -------- */
@@ -862,6 +1094,47 @@ fun EmptyDayPlaceholder(
         )
     }
 }
+
+@Composable
+private fun DiaryPage(
+    text: String,
+    modifier: Modifier,
+    ruledLineColor: Color,
+    ruledLineThickness: Float
+) {
+    Box(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.background)
+            .ruledBackground(
+                lineColor = ruledLineColor,
+                strokeWidth = ruledLineThickness
+            )
+            .padding(12.dp)
+    ) {
+//        Text(
+//            text = text,
+//            style = LocalTextStyle.current.copy(
+//                color = MaterialTheme.colorScheme.onBackground,
+//                lineHeight = 24.sp
+//            )
+//        )
+
+
+        Text(
+            text = text,
+            style = LocalTextStyle.current.copy(
+                fontFamily = DiaryHandwritingFont,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 18.sp,
+                lineHeight = 28.sp,
+                letterSpacing = 0.3.sp
+            )
+        )
+
+
+    }
+}
+
 
 @Composable
 fun AutoSaveIndicator(state: DiaryViewModel.SaveState) {

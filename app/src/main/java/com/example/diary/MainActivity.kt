@@ -32,6 +32,9 @@ class MainActivity : FragmentActivity() {
     private var isAuthInProgress by mutableStateOf(false)
     private var isLockTemporarilyDisabled by mutableStateOf(false)
 
+    private var themeMode by mutableStateOf(ThemeMode.LIGHT)
+
+
 
 
 
@@ -84,11 +87,17 @@ class MainActivity : FragmentActivity() {
                 lockMode = it
             }
         }
+        lifecycleScope.launch {
+            BackupPreferences.themeMode(this@MainActivity).collect {
+                themeMode = it
+            }
+        }
+
 
 
         setContent {
 
-            val darkTheme = isSystemInDarkTheme()
+            val darkTheme = themeMode == ThemeMode.DARK
 
             DiaryTheme(darkTheme = darkTheme) {
                 SideEffect {
@@ -136,6 +145,7 @@ class MainActivity : FragmentActivity() {
                         lockMode == LockMode.OFF || isUnlocked -> {
                             DiaryScreen(
                                 lockMode = lockMode,
+                                themeMode = themeMode,
                                 onExportStarted = {
                                     isLockTemporarilyDisabled = true
                                 },

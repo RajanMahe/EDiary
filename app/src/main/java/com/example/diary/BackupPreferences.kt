@@ -15,6 +15,8 @@ object BackupPreferences {
     private val LAST_BACKUP_TIME = longPreferencesKey("last_backup_time")
     private val LOCK_MODE_KEY = stringPreferencesKey("lock_mode")
     private val LAST_OPENED_DATE = stringPreferencesKey("last_opened_date")
+    private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
+
 
     /* ---------------- BACKUP ---------------- */
 
@@ -67,4 +69,18 @@ object BackupPreferences {
             prefs[LAST_OPENED_DATE] = date
         }
     }
+
+    suspend fun setThemeMode(context: Context, mode: ThemeMode) {
+        context.dataStore.edit { prefs ->
+            prefs[THEME_MODE_KEY] = mode.name
+        }
+    }
+
+    fun themeMode(context: Context): Flow<ThemeMode> =
+        context.dataStore.data.map { prefs ->
+            prefs[THEME_MODE_KEY]
+                ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
+                ?: ThemeMode.LIGHT
+        }
+
 }

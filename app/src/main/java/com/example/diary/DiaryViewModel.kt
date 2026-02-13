@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.input.TextFieldValue
 import kotlinx.coroutines.flow.asSharedFlow
 import androidx.compose.ui.text.TextRange
+import kotlinx.coroutines.runBlocking
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -505,6 +506,55 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
             .map { it.date }
             .sortedDescending()
     }
+
+    data class DiaryPageState(
+        val date: LocalDate,
+        val text: String
+    )
+
+//    suspend fun preloadPages(center: LocalDate): Map<Int, DiaryPageState> {
+//        return mapOf(
+//            -1 to DiaryPageState(
+//                date = center.minusDays(1),
+//                text = runBlocking {
+//                    dao.getDiaryByDate(center.minusDays(1).toString())?.content.orEmpty()
+//                }
+//            ),
+//            0 to DiaryPageState(
+//                date = center,
+//                text = diaryText.text
+//            ),
+//            1 to DiaryPageState(
+//                date = center.plusDays(1),
+//                text = runBlocking {
+//                    dao.getDiaryByDate(center.plusDays(1).toString())?.content.orEmpty()
+//                }
+//            )
+//        )
+//    }
+
+    suspend fun preloadPages(center: LocalDate): Map<Int, DiaryPageState> {
+
+        val prev = dao.getDiaryByDate(center.minusDays(1).toString())
+        val next = dao.getDiaryByDate(center.plusDays(1).toString())
+
+        return mapOf(
+            -1 to DiaryPageState(
+                date = center.minusDays(1),
+                text = prev?.content.orEmpty()
+            ),
+            0 to DiaryPageState(
+                date = center,
+                text = diaryText.text
+            ),
+            1 to DiaryPageState(
+                date = center.plusDays(1),
+                text = next?.content.orEmpty()
+            )
+        )
+    }
+
+
 
 
 
