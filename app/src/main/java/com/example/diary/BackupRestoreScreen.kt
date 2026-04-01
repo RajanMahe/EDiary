@@ -124,19 +124,19 @@ fun BackupRestoreScreen(
 
 
 
-    val previewDatesState = remember {
-        mutableStateOf<List<LocalDate>>(emptyList())
-    }
-    if (previewDates.isEmpty()) {
-        Text(
-            text = "No dates detected",
-            color = MaterialTheme.colorScheme.error
-        )
-    } else {
-        previewDates.forEach { date ->
-            Text("• $date")
-        }
-    }
+//    val previewDatesState = remember {
+//        mutableStateOf<List<LocalDate>>(emptyList())
+//    }
+//    if (previewDates.isEmpty()) {
+//        Text(
+//            text = "No dates detected",
+//            color = MaterialTheme.colorScheme.error
+//        )
+//    } else {
+//        previewDates.forEach { date ->
+//            Text("• $date")
+//        }
+//    }
 
     if (pendingImportText != null) {
         ModalBottomSheet(

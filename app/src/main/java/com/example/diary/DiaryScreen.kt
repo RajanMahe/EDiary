@@ -5,7 +5,6 @@
 
 package com.example.diary
 
-import DiaryHandwritingFont
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.remember
@@ -310,30 +309,30 @@ fun DiaryScreen(
     /* ---------------- App Lock ---------------- */
 
 
-    var showLockDialog by remember { mutableStateOf(false) }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var isUnlocked by rememberSaveable { mutableStateOf(false) }
-
-    DisposableEffect(lifecycleOwner, lockMode, isRestoreInProgress) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                if (
-                    lockMode != LockMode.OFF &&
-                    !isUnlocked &&
-                    !isRestoreInProgress   // ⭐ KEY FIX
-                ) {
-                    showLockDialog = true
-                }
-            }
-        }
-
-        lifecycleOwner.lifecycle.addObserver(observer)
-
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
+//    var showLockDialog by remember { mutableStateOf(false) }
+//
+//    val lifecycleOwner = LocalLifecycleOwner.current
+//    var isUnlocked by rememberSaveable { mutableStateOf(false) }
+//
+//    DisposableEffect(lifecycleOwner, lockMode, isRestoreInProgress) {
+//        val observer = LifecycleEventObserver { _, event ->
+//            if (event == Lifecycle.Event.ON_RESUME) {
+//                if (
+//                    lockMode != LockMode.OFF &&
+//                    !isUnlocked &&
+//                    !isRestoreInProgress   // ⭐ KEY FIX
+//                ) {
+//                    showLockDialog = true
+//                }
+//            }
+//        }
+//
+//        lifecycleOwner.lifecycle.addObserver(observer)
+//
+//        onDispose {
+//            lifecycleOwner.lifecycle.removeObserver(observer)
+//        }
+//    }
 
 
 
@@ -357,6 +356,8 @@ fun DiaryScreen(
     }
 
     val pageShape = MaterialTheme.shapes.medium
+
+    val onBackgroundColor = MaterialTheme.colorScheme.onBackground
 
 
 
@@ -719,6 +720,7 @@ fun DiaryScreen(
                                 Divider(color = MaterialTheme.colorScheme.primary, thickness = 1.dp)
 
                                 BasicTextField(
+                                    visualTransformation = MarkdownVisualTransformation(onBackgroundColor),
                                     value = diaryViewModel.diaryText,
                                     onValueChange = diaryViewModel::updateDiaryText,
                                     modifier = Modifier
@@ -730,6 +732,7 @@ fun DiaryScreen(
 //                                        color = MaterialTheme.colorScheme.onBackground,
 //                                        lineHeight = 24.sp
 //                                    ),
+
                                     textStyle = LocalTextStyle.current.copy(
                                         fontFamily = DiaryHandwritingFont,
                                         color = MaterialTheme.colorScheme.onBackground,
@@ -1052,7 +1055,24 @@ fun EditorToolbar(
 //                contentDescription = "Attach"
 //            )
 //        }
+
+
 //
+//        IconButton(onClick = { onFormat(TextFormat.Bold) }) {
+//            Text("B", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+//        }
+//        IconButton(onClick = { onFormat(TextFormat.Italic) }) {
+//            Text("I", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onBackground)
+//        }
+//        IconButton(onClick = { onFormat(TextFormat.Underline) }) {
+//            Text("U", textDecoration = TextDecoration.Underline, color = MaterialTheme.colorScheme.onBackground)
+//        }
+
+
+
+
+
+
         Spacer(Modifier.weight(1f))
 
         IconButton(onClick = onAddType) {
@@ -1213,7 +1233,23 @@ fun SearchSheet(
             Spacer(Modifier.height(12.dp))
 
             // Results
-            if (viewModel.searchResults.isEmpty()) {
+//            if (viewModel.searchResults.isEmpty()) {
+//                Text(
+//                    text = "No results",
+//                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+//                    modifier = Modifier.padding(top = 24.dp)
+//                )
+//            } else {
+//                LazyColumn {
+//                    items(viewModel.searchResults) { diary ->
+//                        ListItem(
+//                            headlineContent = {
+//                                Text(diary.date)
+//                            },
+
+            val resultDateFormatter = remember { DateTimeFormatter.ofPattern("d MMM yyyy") }
+
+            if (viewModel.searchQuery.isNotBlank() && viewModel.searchResults.isEmpty()) {
                 Text(
                     text = "No results",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1224,8 +1260,14 @@ fun SearchSheet(
                     items(viewModel.searchResults) { diary ->
                         ListItem(
                             headlineContent = {
-                                Text(diary.date)
+                                val formatted = runCatching {
+                                    LocalDate.parse(diary.date).format(resultDateFormatter)
+                                }.getOrDefault(diary.date)
+                                Text(formatted)
                             },
+
+
+
                             supportingContent = {
                                 Text(
                                     diary.content,

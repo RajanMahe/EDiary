@@ -11,11 +11,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.graphics.Color
 
 
-class MarkdownVisualTransformation : VisualTransformation {
+class MarkdownVisualTransformation(
+    private val textColor: Color = Color.Unspecified
+) : VisualTransformation {
 
     override fun filter(text: AnnotatedString): TransformedText {
         val builder = AnnotatedString.Builder()
-        parseMarkdown(text.text, builder)
+        parseMarkdown(text.text, builder, textColor)
 
         return TransformedText(
             builder.toAnnotatedString(),
@@ -26,7 +28,9 @@ class MarkdownVisualTransformation : VisualTransformation {
 
 private fun parseMarkdown(
     text: String,
-    builder: AnnotatedString.Builder
+    builder: AnnotatedString.Builder,
+    textColor: Color
+
 ) {
     var i = 0
 
@@ -52,7 +56,7 @@ private fun parseMarkdown(
                 if (end != -1) {
                     builder.pushStyle(
                         SpanStyle(textDecoration = TextDecoration.Underline,
-                            color = Color.Black
+                            color = textColor
                         )
 
                     )

@@ -53,10 +53,30 @@ class MainActivity : FragmentActivity() {
 
                         }
                     }
+
                     Lifecycle.Event.ON_START -> {
-                        // Do nothing here
-                        // Let Compose trigger biometric
+                        if (lockMode == LockMode.BIOMETRIC &&
+                            !isUnlocked &&
+                            !isAuthInProgress
+                        ) {
+                            isAuthInProgress = true
+                            BiometricAuthHelper(
+                                activity = this@MainActivity,
+                                onSuccess = {
+                                    isUnlocked = true
+                                    isAuthInProgress = false
+                                },
+                                onError = {
+                                    isAuthInProgress = false
+                                }
+                            ).authenticate()
+                        }
                     }
+
+
+
+
+
                     else -> Unit
                 }
             }
@@ -109,35 +129,35 @@ class MainActivity : FragmentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color.Transparent
                     ){
-                    DisposableEffect(Unit) {
-                        val observer = LifecycleEventObserver { _, event ->
-                            if (
-                                event == Lifecycle.Event.ON_START &&
-                                lockMode == LockMode.BIOMETRIC &&
-                                !isUnlocked &&
-                                !isAuthInProgress
-                            ) {
-                                isAuthInProgress = true
-
-                                BiometricAuthHelper(
-                                    activity = this@MainActivity,
-                                    onSuccess = {
-                                        isUnlocked = true
-                                        isAuthInProgress = false
-                                    },
-                                    onError = {
-                                        isAuthInProgress = false
-                                    }
-                                ).authenticate()
-                            }
-                        }
-
-                        lifecycle.addObserver(observer)
-
-                        onDispose {
-                            lifecycle.removeObserver(observer)
-                        }
-                    }
+//                    DisposableEffect(Unit) {
+//                        val observer = LifecycleEventObserver { _, event ->
+//                            if (
+//                                event == Lifecycle.Event.ON_START &&
+//                                lockMode == LockMode.BIOMETRIC &&
+//                                !isUnlocked &&
+//                                !isAuthInProgress
+//                            ) {
+//                                isAuthInProgress = true
+//
+//                                BiometricAuthHelper(
+//                                    activity = this@MainActivity,
+//                                    onSuccess = {
+//                                        isUnlocked = true
+//                                        isAuthInProgress = false
+//                                    },
+//                                    onError = {
+//                                        isAuthInProgress = false
+//                                    }
+//                                ).authenticate()
+//                            }
+//                        }
+//
+//                        lifecycle.addObserver(observer)
+//
+//                        onDispose {
+//                            lifecycle.removeObserver(observer)
+//                        }
+//                    }
 
 
 

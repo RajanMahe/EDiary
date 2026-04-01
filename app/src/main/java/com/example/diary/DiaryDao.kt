@@ -5,45 +5,65 @@ import androidx.room.*
 @Dao
 interface DiaryDao {
 
-    @Query("SELECT * FROM diary WHERE date = :date ORDER BY id ASC")
-    suspend fun getByDate(date: String): List<DiaryEntity>
+    /* ---------------- DIARIES ---------------- */
 
-    @Query("SELECT * FROM diary ORDER BY id ASC")
-    suspend fun getAll(): List<DiaryEntity>
+    @Insert
+    suspend fun insertDiary(diary: DiaryOwnerEntity): Long
+
+    @Query("SELECT * FROM diaries")
+    suspend fun getAllDiaries(): List<DiaryOwnerEntity>
+
+    @Query("SELECT * FROM diaries WHERE diaryId = :id")
+    suspend fun getDiaryById(id: Int): DiaryOwnerEntity?
+
+    @Query("SELECT COUNT(*) FROM diaries")
+    suspend fun getDiaryCount(): Int
 
 
+
+    /* ---------------- ENTRIES ---------------- */
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(diary: DiaryEntity)
+    suspend fun insert(entry: DiaryEntity)
 
     @Delete
-    suspend fun delete(diary: DiaryEntity)
-
-
-    @Query("SELECT * FROM diary WHERE date = :date")
-    suspend fun getDiaryByDate(date: String): DiaryEntity?
+    suspend fun delete(entry: DiaryEntity)
 
     @Query("""
-    SELECT * FROM diary 
-    WHERE content LIKE :query 
-    OR date LIKE :query
-    ORDER BY date DESC
-            """)
-    suspend fun searchDiary(query: String): List<DiaryEntity>
+        SELECT * FROM entries 
+        WHERE diaryOwnerId = :diaryId AND date = :date
+    """)
+    suspend fun getEntryByDate(
+        diaryId: Int,
+        date: String
+    ): DiaryEntity?
 
+    @Query("""
+        SELECT * FROM entries 
+        WHERE diaryOwnerId = :diaryId
+        ORDER BY date ASC
+    """)
+    suspend fun getAllEntries(diaryId: Int): List<DiaryEntity>
 
-    @Query("SELECT * FROM diary ORDER BY date ASC")
-    suspend fun getAllForExport(): List<DiaryEntity>
+    @Query("""
+        SELECT * FROM entries
+        WHERE diaryOwnerId = :diaryId
+        AND (content LIKE :query OR date LIKE :query)
+        ORDER BY date DESC
+    """)
+    suspend fun searchEntries(
+        diaryId: Int,
+        query: String
+    ): List<DiaryEntity>
 
-    @Query("DELETE FROM diary")
-    suspend fun clearAll()
+    @Query("""
+        SELECT COUNT(*) FROM entries
+        WHERE diaryOwnerId = :diaryId
+    """)
+    suspend fun getCount(diaryId: Int): Int
 
-    @Query("SELECT COUNT(*) FROM diary")
-    suspend fun getCount(): Int
-
-
-
-
+    @Query("DELETE FROM entries WHERE diaryOwnerId = :diaryId")
+    suspend fun clearDiary(diaryId: Int)
 
 
 }
