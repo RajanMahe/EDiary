@@ -44,11 +44,16 @@ import java.time.LocalDate
 
 @Composable
 fun BackupRestoreScreen(
+
+
+
     viewModel: DiaryViewModel = viewModel(),
     onExportStarted: () -> Unit,
     onExportFinished: () -> Unit,
     onBack: () -> Unit
-) {
+)
+
+{
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -122,21 +127,6 @@ fun BackupRestoreScreen(
 
 
 
-
-
-//    val previewDatesState = remember {
-//        mutableStateOf<List<LocalDate>>(emptyList())
-//    }
-//    if (previewDates.isEmpty()) {
-//        Text(
-//            text = "No dates detected",
-//            color = MaterialTheme.colorScheme.error
-//        )
-//    } else {
-//        previewDates.forEach { date ->
-//            Text("• $date")
-//        }
-//    }
 
     if (pendingImportText != null) {
         ModalBottomSheet(

@@ -14,7 +14,9 @@ object BackupPreferences {
 
     private val LAST_BACKUP_TIME = longPreferencesKey("last_backup_time")
     private val LOCK_MODE_KEY = stringPreferencesKey("lock_mode")
-    private val LAST_OPENED_DATE = stringPreferencesKey("last_opened_date")
+private fun lastOpenedDateKey(diaryId: Int) =
+    stringPreferencesKey("last_opened_date_$diaryId")
+
     private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
 
 
@@ -59,14 +61,14 @@ object BackupPreferences {
 
     /* ---------------- LAST OPENED DATE ---------------- */
 
-    fun lastOpenedDate(context: Context): Flow<String?> =
+    fun lastOpenedDate(context: Context, diaryId: Int): Flow<String?> =
         context.dataStore.data.map { prefs ->
-            prefs[LAST_OPENED_DATE]
+            prefs[lastOpenedDateKey(diaryId)]
         }
 
-    suspend fun setLastOpenedDate(context: Context, date: String) {
+    suspend fun setLastOpenedDate(context: Context, diaryId: Int, date: String) {
         context.dataStore.edit { prefs ->
-            prefs[LAST_OPENED_DATE] = date
+            prefs[lastOpenedDateKey(diaryId)] = date
         }
     }
 

@@ -65,5 +65,16 @@ interface DiaryDao {
     @Query("DELETE FROM entries WHERE diaryOwnerId = :diaryId")
     suspend fun clearDiary(diaryId: Int)
 
+    // FIND the last line of the interface (the closing }) and ADD BEFORE IT:
+
+    @Delete
+    suspend fun deleteDiary(diary: DiaryOwnerEntity)
+
+    @Update
+    suspend fun updateDiary(diary: DiaryOwnerEntity)
+
+    @Query("SELECT COUNT(*) FROM entries WHERE diaryOwnerId = :diaryId")
+    suspend fun getEntryCountForDiary(diaryId: Int): Int
+
 
 }

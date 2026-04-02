@@ -58,6 +58,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
@@ -75,8 +76,10 @@ import androidx.compose.ui.res.painterResource
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiaryScreen(
+    diaryId: Int,
     onExportStarted: () -> Unit,
     onExportFinished: () -> Unit,
+    onBack: () -> Unit,
     lockMode: LockMode,
     themeMode: ThemeMode
 
@@ -86,6 +89,15 @@ fun DiaryScreen(
 
 
     val diaryViewModel: DiaryViewModel = viewModel()
+    LaunchedEffect(diaryId) {
+        diaryViewModel.setActiveDiary(diaryId)
+    }
+
+
+// This must fire first — gates all DB access behind the correct diary ID
+    LaunchedEffect(diaryId) {
+        diaryViewModel.setActiveDiary(diaryId)
+    }
 
     /* ---------------- Restore Backup---------------- */
 
@@ -140,7 +152,7 @@ fun DiaryScreen(
     }
 
     LaunchedEffect(Unit) {
-        BackupPreferences.lastOpenedDate(context).collect { saved ->
+        BackupPreferences.lastOpenedDate(context, diaryId).collect { saved ->
             if (selectedDate == null) {
                 val resolvedDate =
                     saved?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
@@ -200,14 +212,6 @@ fun DiaryScreen(
     LaunchedEffect(selectedDate) {
         selectedDate?.let { date ->
 
-//            diaryViewModel.saveCurrentDiary()
-//            pageStack = diaryViewModel.preloadPages(date)
-//            diaryViewModel.loadDiaryForDate(date)
-//            diaryViewModel.updateEditModeForDate(date)
-//            BackupPreferences.setLastOpenedDate(
-//                context,
-//                date.toString()
-//            )
 
             diaryViewModel.saveCurrentDiary()
 
@@ -217,8 +221,7 @@ fun DiaryScreen(
 
             diaryViewModel.updateEditModeForDate(date)
 
-            BackupPreferences.setLastOpenedDate(context, date.toString())
-
+            BackupPreferences.setLastOpenedDate(context, diaryId, date.toString())
         }
     }
 
@@ -306,35 +309,6 @@ fun DiaryScreen(
 
 
 
-    /* ---------------- App Lock ---------------- */
-
-
-//    var showLockDialog by remember { mutableStateOf(false) }
-//
-//    val lifecycleOwner = LocalLifecycleOwner.current
-//    var isUnlocked by rememberSaveable { mutableStateOf(false) }
-//
-//    DisposableEffect(lifecycleOwner, lockMode, isRestoreInProgress) {
-//        val observer = LifecycleEventObserver { _, event ->
-//            if (event == Lifecycle.Event.ON_RESUME) {
-//                if (
-//                    lockMode != LockMode.OFF &&
-//                    !isUnlocked &&
-//                    !isRestoreInProgress   // ⭐ KEY FIX
-//                ) {
-//                    showLockDialog = true
-//                }
-//            }
-//        }
-//
-//        lifecycleOwner.lifecycle.addObserver(observer)
-//
-//        onDispose {
-//            lifecycleOwner.lifecycle.removeObserver(observer)
-//        }
-//    }
-
-
 
 
     /* ---------------- theme Rulled line for unruled background ---------------- */
@@ -386,15 +360,23 @@ fun DiaryScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary
                 ),
+
+
                 navigationIcon = {
-                    Image(
-                    painter = painterResource(id = R.drawable.ic_app_logo),
-                    contentDescription = "App Logo",
-                    modifier = Modifier
-                        .height(80.dp) ,// adjust if needed
-
-                    )
-
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_app_logo),
+                            contentDescription = "App Logo",
+                            modifier = Modifier.height(80.dp)
+                        )
+                    }
                 },
 
                 title = {
@@ -669,18 +651,7 @@ fun DiaryScreen(
                     }
             ) {
 
-                // ---------- CONTENT ----------
-//                Box(
-//                    modifier = Modifier
-//                        .fillMaxSize()
-//                        .graphicsLayer {
-//                            translationX = slideOffsetX.value
-//                            alpha = pageAlpha
-//                            shadowElevation = pageElevation.toPx()
-//                            shape = pageShape
-//                            clip = true
-//                        }
-//                )
+
 
                 // ---------- PAGE STACK (Google Photos style) ----------
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -728,10 +699,7 @@ fun DiaryScreen(
                                         .verticalScroll(editorScrollState) // ✅ SAFE
                                         .imePadding()
                                         .navigationBarsPadding(),
-//                                    textStyle = LocalTextStyle.current.copy(
-//                                        color = MaterialTheme.colorScheme.onBackground,
-//                                        lineHeight = 24.sp
-//                                    ),
+
 
                                     textStyle = LocalTextStyle.current.copy(
                                         fontFamily = DiaryHandwritingFont,
@@ -769,13 +737,7 @@ fun DiaryScreen(
                                         lineColor = ruledLineColor,
                                         strokeWidth = ruledLineThickness
                                     )
-//                                    .graphicsLayer {
-//                                        translationX = slideOffsetX.value
-//                                        alpha = pageAlpha
-//                                        shadowElevation = pageElevation.toPx()
-//                                        shape = pageShape
-//                                        clip = true
-//                                    }
+
                                     .graphicsLayer {
                                         translationX = slideOffsetX.value
 
@@ -795,8 +757,6 @@ fun DiaryScreen(
 
 
                             ) {
-
-
 
                                 if (showPlaceholder) {
                                     EmptyDayPlaceholder(Modifier.fillMaxSize()
@@ -924,9 +884,6 @@ fun DiaryScreen(
 
 
  }
-
-
-
 
 
 
@@ -1131,15 +1088,6 @@ private fun DiaryPage(
             )
             .padding(12.dp)
     ) {
-//        Text(
-//            text = text,
-//            style = LocalTextStyle.current.copy(
-//                color = MaterialTheme.colorScheme.onBackground,
-//                lineHeight = 24.sp
-//            )
-//        )
-
-
         Text(
             text = text,
             style = LocalTextStyle.current.copy(
@@ -1232,20 +1180,6 @@ fun SearchSheet(
 
             Spacer(Modifier.height(12.dp))
 
-            // Results
-//            if (viewModel.searchResults.isEmpty()) {
-//                Text(
-//                    text = "No results",
-//                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-//                    modifier = Modifier.padding(top = 24.dp)
-//                )
-//            } else {
-//                LazyColumn {
-//                    items(viewModel.searchResults) { diary ->
-//                        ListItem(
-//                            headlineContent = {
-//                                Text(diary.date)
-//                            },
 
             val resultDateFormatter = remember { DateTimeFormatter.ofPattern("d MMM yyyy") }
 

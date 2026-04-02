@@ -75,9 +75,14 @@ dependencies {
 
     implementation("androidx.biometric:biometric-ktx:1.2.0-alpha05")
 
+    // REPLACE WITH:
+    implementation ("androidx.compose.material3:material3:1.3.1")
+
     implementation ("androidx.fragment:fragment-ktx:1.6.2")
 
     implementation("androidx.lifecycle:lifecycle-process:2.8.6")
+
+    implementation ("androidx.navigation:navigation-compose:2.7.7")
 
 
     kapt ("androidx.room:room-compiler:2.6.1")

@@ -1,5 +1,7 @@
 package com.example.diary
 
+
+
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -21,6 +23,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+
 
 
 
@@ -129,50 +136,41 @@ class MainActivity : FragmentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color.Transparent
                     ){
-//                    DisposableEffect(Unit) {
-//                        val observer = LifecycleEventObserver { _, event ->
-//                            if (
-//                                event == Lifecycle.Event.ON_START &&
-//                                lockMode == LockMode.BIOMETRIC &&
-//                                !isUnlocked &&
-//                                !isAuthInProgress
-//                            ) {
-//                                isAuthInProgress = true
-//
-//                                BiometricAuthHelper(
-//                                    activity = this@MainActivity,
-//                                    onSuccess = {
-//                                        isUnlocked = true
-//                                        isAuthInProgress = false
-//                                    },
-//                                    onError = {
-//                                        isAuthInProgress = false
-//                                    }
-//                                ).authenticate()
-//                            }
-//                        }
-//
-//                        lifecycle.addObserver(observer)
-//
-//                        onDispose {
-//                            lifecycle.removeObserver(observer)
-//                        }
-//                    }
-
-
 
                     when {
                         lockMode == LockMode.OFF || isUnlocked -> {
-                            DiaryScreen(
-                                lockMode = lockMode,
-                                themeMode = themeMode,
-                                onExportStarted = {
-                                    isLockTemporarilyDisabled = true
-                                },
-                                onExportFinished = {
-                                    isLockTemporarilyDisabled = false
+                            val navController = rememberNavController()
+
+                            NavHost(
+                                navController = navController,
+                                startDestination = "home"
+                            ) {
+                                composable("home") {
+                                    HomeScreen(
+                                        lockMode = lockMode,
+                                        themeMode = themeMode,
+                                        onDiarySelected = { diaryId ->
+                                            navController.navigate("diary/$diaryId")
+                                        }
+                                    )
                                 }
-                            )
+                                composable("diary/{diaryId}") { backStackEntry ->
+                                    val diaryId = backStackEntry.arguments
+                                        ?.getString("diaryId")
+                                        ?.toIntOrNull() ?: return@composable
+
+                                    // viewModel() here is already scoped to this backstack entry automatically
+                                    // Each diary navigation creates an isolated ViewModel instance
+                                    DiaryScreen(
+                                        diaryId = diaryId,
+                                        lockMode = lockMode,
+                                        themeMode = themeMode,
+                                        onExportStarted = { isLockTemporarilyDisabled = true },
+                                        onExportFinished = { isLockTemporarilyDisabled = false },
+                                        onBack = { navController.popBackStack() }
+                                    )
+                                }
+                            }
                         }
                         else -> Box(Modifier.fillMaxSize())
                     }
