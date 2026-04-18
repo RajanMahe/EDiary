@@ -1,4 +1,4 @@
-package com.example.diary
+package com.aburv.kurippidu
 
 enum class ThemeMode {
     LIGHT,

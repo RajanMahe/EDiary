@@ -1,4 +1,4 @@
-package com.example.diary
+package com.aburv.kurippidu
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,7 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.diary.data.DiaryOwnerEntity
+import com.aburv.kurippidu.data.DiaryOwnerEntity
 import java.text.SimpleDateFormat
 import java.util.*
 

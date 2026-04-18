@@ -1,4 +1,4 @@
-package com.example.diary
+package com.aburv.kurippidu
 
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle

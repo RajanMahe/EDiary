@@ -3,7 +3,7 @@
 
 
 
-package com.example.diary
+package com.aburv.kurippidu
 
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.core.Animatable
@@ -45,8 +45,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.example.diary.DiaryViewModel.BackupEvent
-import com.example.diary.LockMode
+import com.aburv.kurippidu.DiaryViewModel.BackupEvent
+import com.aburv.kurippidu.LockMode
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
@@ -65,12 +65,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-
-
-
-
-
-
+import com.aburv.kurippidu.R
 
 
 @OptIn(ExperimentalMaterial3Api::class)

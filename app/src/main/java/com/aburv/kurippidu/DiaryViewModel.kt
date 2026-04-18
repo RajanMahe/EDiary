@@ -1,11 +1,11 @@
 
 
-package com.example.diary
+package com.aburv.kurippidu
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.diary.data.*
+import com.aburv.kurippidu.data.*
 import kotlinx.coroutines.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.text.TextRange

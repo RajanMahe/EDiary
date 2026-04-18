@@ -1,4 +1,4 @@
-package com.example.diary
+package com.aburv.kurippidu
 
 
 
@@ -16,7 +16,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import com.example.diary.ui.theme.DiaryTheme
+import com.aburv.kurippidu.ui.theme.DiaryTheme
 import kotlinx.coroutines.launch
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.LifecycleEventObserver

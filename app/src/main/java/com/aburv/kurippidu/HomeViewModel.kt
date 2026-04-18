@@ -1,11 +1,11 @@
-package com.example.diary
+package com.aburv.kurippidu
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.compose.runtime.*
-import com.example.diary.data.DiaryDatabase
-import com.example.diary.data.DiaryOwnerEntity
+import com.aburv.kurippidu.data.DiaryDatabase
+import com.aburv.kurippidu.data.DiaryOwnerEntity
 import kotlinx.coroutines.launch
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {

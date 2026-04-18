@@ -1,4 +1,4 @@
-package com.example.diary.data
+package com.aburv.kurippidu.data
 
 import android.content.Context
 import androidx.room.Database
@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DiaryEntity::class
     ],
     version = 4,
-    exportSchema = true
+    exportSchema = false
 )
 abstract class DiaryDatabase : RoomDatabase() {
 

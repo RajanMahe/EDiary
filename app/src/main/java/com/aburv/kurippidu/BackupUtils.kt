@@ -1,4 +1,4 @@
-package com.example.diary
+package com.aburv.kurippidu
 
 import android.content.Context
 import android.os.Environment

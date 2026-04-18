@@ -1,15 +1,16 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("kotlin-kapt")
 }
 
 android {
-    namespace = "com.example.diary"
+    namespace = "com.aburv.kurippidu"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.diary"
+        applicationId = "com.aburv.kurippidu"
         minSdk = 27
         targetSdk = 34
         versionCode = 1
@@ -41,7 +42,7 @@ android {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.1"
+        kotlinCompilerExtensionVersion = "2.0.0"
     }
     packaging {
         resources {

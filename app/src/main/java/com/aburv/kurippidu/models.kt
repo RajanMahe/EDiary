@@ -1,4 +1,4 @@
-package com.example.diary
+package com.aburv.kurippidu
 
 import java.time.LocalDate
 import java.util.UUID

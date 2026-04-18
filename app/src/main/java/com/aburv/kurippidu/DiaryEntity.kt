@@ -1,4 +1,4 @@
-package com.example.diary.data
+package com.aburv.kurippidu.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey

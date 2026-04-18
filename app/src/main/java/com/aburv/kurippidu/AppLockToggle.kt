@@ -1,4 +1,4 @@
-package com.example.diary
+package com.aburv.kurippidu
 
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.ListItem

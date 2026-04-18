@@ -1,4 +1,4 @@
-package com.example.diary
+package com.aburv.kurippidu
 
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
