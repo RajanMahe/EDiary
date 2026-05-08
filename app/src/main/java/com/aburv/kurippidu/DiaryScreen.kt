@@ -5,6 +5,7 @@
 
 package com.aburv.kurippidu
 
+import com.aburv.kurippidu.CalendarMonthView
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.remember
@@ -24,9 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
@@ -46,26 +45,26 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.aburv.kurippidu.DiaryViewModel.BackupEvent
-import com.aburv.kurippidu.LockMode
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import com.aburv.kurippidu.R
+import java.time.YearMonth
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,17 +83,26 @@ fun DiaryScreen(
 
 
     val diaryViewModel: DiaryViewModel = viewModel()
-    LaunchedEffect(diaryId) {
-        diaryViewModel.setActiveDiary(diaryId)
-    }
+
 
 
 // This must fire first — gates all DB access behind the correct diary ID
     LaunchedEffect(diaryId) {
         diaryViewModel.setActiveDiary(diaryId)
+        diaryViewModel.loadRecurringTodos()
+    }
+
+
+    /* ---------------- Calendar ---------------- */
+
+
+    LaunchedEffect(diaryId) {
+        diaryViewModel.loadEntryDates()
     }
 
     /* ---------------- Restore Backup---------------- */
+
+
 
 
 
@@ -167,7 +175,6 @@ fun DiaryScreen(
 
 
 
-
     var showCalendarPicker by remember { mutableStateOf(false) }
 
     val dateFormatter = remember { DateTimeFormatter.ofPattern("d MMM") }
@@ -180,8 +187,12 @@ fun DiaryScreen(
     val isToday = currentDate == LocalDate.now()
     val showEditor = isToday || diaryViewModel.isEditMode
 
+
+
     val isEmptyEntry = diaryViewModel.diaryText.text.isBlank()
-    val showPlaceholder = !showEditor && isEmptyEntry
+    val todosEmpty = diaryViewModel.todos?.isEmpty() ?: true
+    val showPlaceholder = !showEditor && isEmptyEntry && todosEmpty
+
 
 
 
@@ -217,6 +228,8 @@ fun DiaryScreen(
             diaryViewModel.updateEditModeForDate(date)
 
             BackupPreferences.setLastOpenedDate(context, diaryId, date.toString())
+
+            diaryViewModel.loadTodos(date)
         }
     }
 
@@ -226,7 +239,15 @@ fun DiaryScreen(
 
     /* ---------------- TOOLBAR STATE ---------------- */
 
+    var showAddTodoDialog by remember { mutableStateOf(false) }
+    var newTodoText by remember { mutableStateOf("") }
+
     var showTypeDialog by remember { mutableStateOf(false) }
+
+    var showRecurringTaskDialog by remember { mutableStateOf(false) }
+
+    var showRecurringManager by remember { mutableStateOf(false) }
+
 
     /* ---------------- ANIMATION ---------------- */
     var isAnimating by remember { mutableStateOf(false) }
@@ -527,11 +548,49 @@ fun DiaryScreen(
         }
     ) { padding ->
 
+        // ✅ TODO SECTION
+
+
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-        ) {
+        )
+
+
+        {
+
+//            // ✅ ADD TODO INPUT
+//            Row(
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .padding(8.dp),
+//                verticalAlignment = Alignment.CenterVertically
+//            ) {
+//
+//                TextField(
+//                    value = newTodoText,
+//                    onValueChange = { newTodoText = it },
+//                    modifier = Modifier.weight(1f),
+//                    placeholder = { Text("Add a task...") }
+//                )
+//
+//                Spacer(modifier = Modifier.width(8.dp))
+//
+//                IconButton(
+//                    onClick = {
+//                        if (newTodoText.isNotBlank()) {
+//                            diaryViewModel.addTodo(newTodoText, currentDate)
+//                            newTodoText = ""
+//                        }
+//                    }
+//                ) {
+//                    Icon(Icons.Default.Add, contentDescription = "Add Todo")
+//                }
+//            }
+
+
+
 
             /* -------- DATE ROW (below blue bar) -------- */
 
@@ -571,14 +630,28 @@ fun DiaryScreen(
                 Icon(
                     imageVector = Icons.Default.DateRange,
                     contentDescription = "Go to Today",
+
                     modifier = Modifier.clickable {
-                        selectedDate = LocalDate.now()
+                        val today = LocalDate.now()
+                        if (currentDate != today) {
+                            // ✅ direction: if we're in the past, today is in the future → swipe left (-1)
+                            //               if we're in the future, today is in the past → swipe right (+1)
+                            val direction = if (currentDate.isBefore(today)) -1 else 1
+                            animateToDate(today, direction)
+                        }
                     },
+
                     tint = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(Modifier.width(24.dp))
 
             }
+
+
+            Divider(
+                color = MaterialTheme.colorScheme.primary,
+                thickness = 1.dp
+            )
 
 
             Divider(
@@ -593,6 +666,9 @@ fun DiaryScreen(
                 modifier = Modifier
                     .weight(1f)
                     .pointerInput(selectedDate, showEditor,isAnimating) {
+
+
+
                         if (!showEditor && !isAnimating) {
                             var totalDrag = 0f
 
@@ -603,7 +679,7 @@ fun DiaryScreen(
                                     val resistedDrag = totalDrag * resistanceFactor
 
                                     scope.launch {
-                                        slideOffsetX.snapTo(totalDrag)
+                                        slideOffsetX.snapTo(resistedDrag)
                                     }
                                 },
                                 onDragEnd = {
@@ -641,10 +717,27 @@ fun DiaryScreen(
 //                                    scope.launch { slideOffsetX.animateTo(0f) }
 //                                    totalDrag = 0f
 //                                }
+
                             )
+
+
+
+
+
+
                         }
+
+
+
+
                     }
-            ) {
+
+
+
+            )
+
+
+            {
 
 
 
@@ -655,6 +748,7 @@ fun DiaryScreen(
                     pageStack[-1]?.let { page ->
                         DiaryPage(
                             text = page.text,
+                            todos = emptyList(),
                             ruledLineColor = ruledLineColor,
                             ruledLineThickness = ruledLineThickness,
                             modifier = Modifier
@@ -663,7 +757,13 @@ fun DiaryScreen(
                                     translationX = slideOffsetX.value - screenWidth
                                     alpha = 0.6f
                                 }
-                                .blur(8.dp)
+                                .blur(8.dp),
+
+
+                            onDeleteTodo = { diaryViewModel.deleteTodo(it) }
+
+
+
                         )
                     }
 
@@ -675,15 +775,32 @@ fun DiaryScreen(
                             // ✅ EDITOR — NO animation, NO graphicsLayer
                             Column(
                                 modifier = Modifier.fillMaxSize()
+                                    .fillMaxSize()
+                                    .imePadding()
                             ) {
 
                                 EditorToolbar(
                                     enabled = true,
                                     onAddType = { showTypeDialog = true },
-                                    onFormat = { diaryViewModel.applyFormat(it) }
+                                    onFormat = { diaryViewModel.applyFormat(it) },
+                                    onAddTodoClick = { showAddTodoDialog = true },
+                                    onAddRecurringClick = { showRecurringTaskDialog = true },
+                                    onManageRecurringClick = { showRecurringManager = true }
                                 )
 
+
+
+
+
+
+
+
+
                                 Divider(color = MaterialTheme.colorScheme.primary, thickness = 1.dp)
+
+
+                                val keyboardController = LocalSoftwareKeyboardController.current
+                                val focusManager = LocalFocusManager.current
 
                                 BasicTextField(
                                     visualTransformation = MarkdownVisualTransformation(onBackgroundColor),
@@ -693,7 +810,12 @@ fun DiaryScreen(
                                         .fillMaxSize()
                                         .verticalScroll(editorScrollState) // ✅ SAFE
                                         .imePadding()
-                                        .navigationBarsPadding(),
+                                        .navigationBarsPadding()
+                                        .pointerInput(Unit) {
+                                            detectTapGestures(onTap = {
+                                                keyboardController?.show()
+                                            })
+                                        },
 
 
                                     textStyle = LocalTextStyle.current.copy(
@@ -706,7 +828,7 @@ fun DiaryScreen(
 
                                     cursorBrush = SolidColor(cursorColor),
                                     decorationBox = { inner ->
-                                        Box(
+                                        Column(
                                             modifier = Modifier
                                                 .fillMaxSize()
                                                 .background(MaterialTheme.colorScheme.background)
@@ -716,10 +838,64 @@ fun DiaryScreen(
                                                 )
                                                 .padding(12.dp)
                                         ) {
+
+                                            if (diaryViewModel.todos?.isNotEmpty() == true) {
+                                                Text(
+                                                    text = "Tasks",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f),
+                                                    modifier = Modifier.padding(bottom = 4.dp)
+                                                )
+                                            }
+
+                                            // ✅ TODOS INSIDE PAGE
+                                            diaryViewModel.todos?.forEach { todo ->
+
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+
+                                                    Checkbox(
+                                                        checked = todo.isDone,
+                                                        onCheckedChange = {
+                                                            diaryViewModel.toggleTodo(todo, currentDate)
+                                                        }
+                                                    )
+
+                                                    Text(
+                                                        text = todo.title,
+                                                        modifier = Modifier.padding(start = 8.dp),
+                                                        textDecoration = if (todo.isDone)
+                                                            TextDecoration.LineThrough
+                                                        else null
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(Modifier.height(8.dp))
+
+                                            // ✅ ACTUAL DIARY TEXT
                                             inner()
                                         }
                                     }
                                 )
+                            }
+                            // ADD this right after EditorToolbar(...) call, inside the editor Column:
+                            if ((diaryViewModel.recurringTodos.isNotEmpty())) {
+                                TextButton(
+                                    onClick = { showRecurringManager = true },
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "Manage recurring tasks (${diaryViewModel.recurringTodos.size})",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
 
                         } else {
@@ -753,31 +929,141 @@ fun DiaryScreen(
 
                             ) {
 
-                                if (showPlaceholder) {
-                                    EmptyDayPlaceholder(Modifier.fillMaxSize()
-                                        .ruledBackground(
-                                            lineColor = ruledLineColor,
-                                            strokeWidth = ruledLineThickness
-                                        ))
-                                } else {
+                                // REPLACE the todos forEach inside decorationBox:
+//                                var todoToDelete by remember { mutableStateOf<TodoEntity?>(null) }
 
-                                    Box(
+//                                diaryViewModel.todos?.forEach { todo ->
+//                                    var showDeleteOption by remember(todo.id) { mutableStateOf(false) }
+//
+//                                    Row(
+//                                        modifier = Modifier
+//                                            .fillMaxWidth()
+//                                            .padding(vertical = 4.dp),
+//                                        verticalAlignment = Alignment.CenterVertically
+//                                    ) {
+//                                        Checkbox(
+//                                            checked = todo.isDone,
+//                                            onCheckedChange = { diaryViewModel.toggleTodo(todo, currentDate) }
+//                                        )
+//
+//                                        Text(
+//                                            text = todo.title,
+//                                            modifier = Modifier
+//                                                .weight(1f)
+//                                                .padding(start = 8.dp)
+//                                                .pointerInput(todo.id) {
+//                                                    detectTapGestures(
+//                                                        onLongPress = { showDeleteOption = true }
+//                                                    )
+//                                                },
+//                                            textDecoration = if (todo.isDone) TextDecoration.LineThrough else null
+//                                        )
+//
+//                                        if (showDeleteOption) {
+//                                            TextButton(
+//                                                onClick = {
+//                                                    diaryViewModel.deleteTodo(todo)
+//                                                    showDeleteOption = false
+//                                                }
+//                                            ) {
+//                                                Text("Delete", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+//                                            }
+//                                        }
+//                                    }
+//                                }
+
+                                // In DiaryScreen.kt — PREVIEW mode Box (the else branch)
+// REPLACE the existing diaryViewModel.todos?.forEach { ... } block with this:
+
+                                val todos = diaryViewModel.todos ?: emptyList()
+
+                                if (todos.isEmpty() && diaryViewModel.diaryText.text.isBlank()) {
+                                    EmptyDayPlaceholder(modifier = Modifier.fillMaxSize())
+                                } else {
+                                    Column(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .verticalScroll(previewScrollState) // ✅ SINGLE scroll
+                                            .verticalScroll(previewScrollState)
+                                            .padding(12.dp)
                                     ) {
-                                        DiaryPage(
-                                            text = page.text,
-                                            ruledLineColor = ruledLineColor,
-                                            ruledLineThickness = ruledLineThickness,
-                                            modifier = Modifier.fillMaxSize()
-                                                .ruledBackground(
-                                                    lineColor = ruledLineColor,
-                                                    strokeWidth = ruledLineThickness
+                                        // ✅ READ-ONLY todos — no checkbox interaction, no delete, no long-press
+                                        todos.forEach { todo ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Checkbox(
+                                                    checked = todo.isDone,
+                                                    onCheckedChange = null  // ✅ completely disabled — read only
                                                 )
+                                                Text(
+                                                    text = todo.title,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .padding(start = 8.dp),
+                                                    color = MaterialTheme.colorScheme.onBackground.copy(
+                                                        alpha = if (todo.isDone) 0.5f else 1f
+                                                    ),
+                                                    textDecoration = if (todo.isDone) TextDecoration.LineThrough else null
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(Modifier.height(8.dp))
+
+                                        // Diary text — read only
+                                        Text(
+                                            text = diaryViewModel.diaryText.text,
+                                            style = LocalTextStyle.current.copy(
+                                                fontFamily = DiaryHandwritingFont,
+                                                color = MaterialTheme.colorScheme.onBackground,
+                                                fontSize = 18.sp,
+                                                lineHeight = 28.sp,
+                                                letterSpacing = 0.3.sp
+                                            )
                                         )
                                     }
                                 }
+
+
+//
+//                                val currentText = diaryViewModel.diaryText.text
+//                                val todosLoaded = diaryViewModel.todos  // null = still loading
+//
+//                                when {
+//                                    todosLoaded == null -> {
+//                                        // Loading state — show blank to avoid flicker
+//                                        Box(
+//                                            modifier = Modifier
+//                                                .fillMaxSize()
+//                                                .ruledBackground(lineColor = ruledLineColor, strokeWidth = ruledLineThickness)
+//                                        )
+//                                    }
+//                                    currentText.isBlank() && todosLoaded.isEmpty() -> {
+//                                        EmptyDayPlaceholder(
+//                                            modifier = Modifier
+//                                                .fillMaxSize()
+//                                                .ruledBackground(lineColor = ruledLineColor, strokeWidth = ruledLineThickness)
+//                                        )
+//                                    }
+//                                    else -> {
+//                                        Column(
+//                                            modifier = Modifier
+//                                                .fillMaxSize()
+//                                                .verticalScroll(previewScrollState)
+//                                        ) {
+//                                            DiaryPage(
+//                                                text = currentText,
+//                                                todos = todosLoaded,
+//                                                ruledLineColor = ruledLineColor,
+//                                                ruledLineThickness = ruledLineThickness,
+//                                                modifier = Modifier.fillMaxSize()
+//                                            )
+//                                        }
+//                                    }
+//                                }
 
 
 
@@ -786,10 +1072,12 @@ fun DiaryScreen(
                     }
 
 
+
                     // ▶ NEXT DAY (already loaded, blurred)
                     pageStack[1]?.let { page ->
                         DiaryPage(
                             text = page.text,
+                            todos = emptyList(),
                             ruledLineColor = ruledLineColor,
                             ruledLineThickness = ruledLineThickness,
                             modifier = Modifier
@@ -798,8 +1086,10 @@ fun DiaryScreen(
                                     translationX = slideOffsetX.value + screenWidth
                                     alpha = 0.6f
                                 }
-                                .blur(8.dp)
+                                .blur(8.dp),
+                            onDeleteTodo = { diaryViewModel.deleteTodo(it) }
                         )
+
                     }
                 }
 
@@ -832,6 +1122,57 @@ fun DiaryScreen(
                 }
             }
         }
+
+        if (showAddTodoDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddTodoDialog = false },
+                title = { Text("Add Task") },
+                text = {
+                    TextField(
+                        value = newTodoText,
+                        onValueChange = { newTodoText = it },
+                        placeholder = { Text("Enter your task") }
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (newTodoText.isNotBlank()) {
+                                diaryViewModel.addTodo(newTodoText, currentDate)
+                                newTodoText = ""
+                                showAddTodoDialog = false
+                            }
+                        }
+                    ) {
+                        Text("OK")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showAddTodoDialog = false }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showRecurringTaskDialog) {
+            RecurringTaskDialog(
+                onDismiss = { showRecurringTaskDialog = false },
+                onConfirm = { taskTitle, start, end ->
+                    diaryViewModel.addRecurringTodo(taskTitle, start, end)
+                    showRecurringTaskDialog = false
+                }
+            )
+        }
+        if (showRecurringManager) {
+            RecurringTaskManagerSheet(
+                viewModel = diaryViewModel,
+                onDismiss = { showRecurringManager = false }
+            )
+        }
+
     }
     LaunchedEffect(Unit) {
         diaryViewModel.reinitializeIfEmpty()
@@ -851,14 +1192,18 @@ fun DiaryScreen(
 
 
     if (showCalendarPicker) {
-        MonthYearPicker(
-            initialDate = currentDate,
-            onDismiss = { showCalendarPicker = false },
-            onDateSelected = { newDate ->
-                selectedDate = newDate
-                showCalendarPicker = false
-            }
-        )
+        ModalBottomSheet(
+            onDismissRequest = { showCalendarPicker = false }
+        ) {
+            CalendarMonthView(
+                currentMonth = YearMonth.from(currentDate),
+                entryDates = diaryViewModel.entryDates.toList(),
+                onDateClick = { date ->
+                    selectedDate = date
+                    showCalendarPicker = false
+                }
+            )
+        }
     }
 
     // 🔍 SEARCH SHEET
@@ -896,6 +1241,9 @@ fun MonthYearPicker(
 
     var selectedYear by remember { mutableStateOf(initialDate.year) }
     var selectedMonth by remember { mutableStateOf(initialDate.monthValue - 1) }
+
+
+
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
 
@@ -979,7 +1327,11 @@ fun MonthYearPicker(
 fun EditorToolbar(
     enabled: Boolean,
     onAddType: () -> Unit,
-    onFormat: (TextFormat) -> Unit
+    onFormat: (TextFormat) -> Unit,
+    onAddTodoClick: () -> Unit,
+    onAddRecurringClick: () -> Unit,
+    onManageRecurringClick: () -> Unit,
+
 ) {
     Row(
         modifier = Modifier
@@ -1020,12 +1372,44 @@ fun EditorToolbar(
 //            Text("U", textDecoration = TextDecoration.Underline, color = MaterialTheme.colorScheme.onBackground)
 //        }
 
-
-
-
-
-
         Spacer(Modifier.weight(1f))
+
+
+        // ✅ ADD BUTTON
+        IconButton(
+            onClick = onAddTodoClick
+        ) {
+            Icon(
+                imageVector = Icons.Default.AddCircle,
+                contentDescription = "Add Todo"
+            )
+        }
+
+
+        Spacer(Modifier.width(8.dp))
+
+
+//        IconButton(onClick = onAddRecurringClick) {
+//            Icon(
+//                imageVector = Icons.Default.DateRange,
+//                contentDescription = "Add Recurring Task",
+//                tint = MaterialTheme.colorScheme.onBackground
+//            )
+//        }
+
+        Box {
+            IconButton(onClick = onAddRecurringClick) {
+                Icon(
+                    imageVector = Icons.Default.DateRange,
+                    contentDescription = "Add Recurring Task",
+                    tint = MaterialTheme.colorScheme.onBackground
+                )
+            }
+        }
+
+
+        Spacer(Modifier.width(8.dp))
+
 
         IconButton(onClick = onAddType) {
             Icon(Icons.Default.Add, contentDescription = "Add")
@@ -1072,7 +1456,9 @@ private fun DiaryPage(
     text: String,
     modifier: Modifier,
     ruledLineColor: Color,
-    ruledLineThickness: Float
+    ruledLineThickness: Float,
+    todos: List<TodoEntity>,
+    onDeleteTodo: ((TodoEntity) -> Unit)? = null
 ) {
     Box(
         modifier = modifier
@@ -1083,16 +1469,90 @@ private fun DiaryPage(
             )
             .padding(12.dp)
     ) {
-        Text(
-            text = text,
-            style = LocalTextStyle.current.copy(
-                fontFamily = DiaryHandwritingFont,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 18.sp,
-                lineHeight = 28.sp,
-                letterSpacing = 0.3.sp
+
+
+        Column {
+
+            // ✅ TODOS (VISIBLE IN VIEW MODE ALSO)
+//            todos.forEach { todo ->
+//
+//                Row(
+//                    modifier = Modifier
+//                        .fillMaxWidth()
+//                        .padding(vertical = 4.dp),
+//                    verticalAlignment = Alignment.CenterVertically
+//                ) {
+//
+//                    Checkbox(
+//                        checked = todo.isDone,
+//                        onCheckedChange = null // 👈 READ ONLY in view mode
+//                    )
+//
+//                    Text(
+//                        text = todo.title,
+//                        modifier = Modifier.padding(start = 8.dp),
+//                        textDecoration = if (todo.isDone)
+//                            TextDecoration.LineThrough
+//                        else null
+//                    )
+//                }
+//            }
+
+
+            todos.forEach { todo ->
+                var showDeleteOption by remember(todo.id) { mutableStateOf(false) }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = todo.isDone,
+                        onCheckedChange = null
+                    )
+
+                    Text(
+                        text = todo.title,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp)
+                            .then(
+                                if (onDeleteTodo != null)
+                                    Modifier.pointerInput(todo.id) {
+                                        detectTapGestures(onLongPress = { showDeleteOption = true })
+                                    }
+                                else Modifier
+                            ),
+                        textDecoration = if (todo.isDone) TextDecoration.LineThrough else null
+                    )
+
+                    if (showDeleteOption && onDeleteTodo != null) {
+                        TextButton(onClick = {
+                            onDeleteTodo(todo)
+                            showDeleteOption = false
+                        }) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // ✅ DIARY TEXT
+            Text(
+                text = text,
+                style = LocalTextStyle.current.copy(
+                    fontFamily = DiaryHandwritingFont,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 18.sp,
+                    lineHeight = 28.sp,
+                    letterSpacing = 0.3.sp
+                )
             )
-        )
+        }
 
 
     }

@@ -6,13 +6,15 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.aburv.kurippidu.TodoEntity
 
 @Database(
     entities = [
         DiaryOwnerEntity::class,
-        DiaryEntity::class
+        DiaryEntity::class,
+        TodoEntity::class
     ],
-    version = 4,
+    version = 6,
     exportSchema = false
 )
 abstract class DiaryDatabase : RoomDatabase() {
@@ -92,6 +94,30 @@ abstract class DiaryDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+            CREATE TABLE IF NOT EXISTS todo (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                diaryId INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                date TEXT NOT NULL,
+                type TEXT NOT NULL,
+                startDate TEXT,
+                endDate TEXT,
+                time INTEGER,
+                isDone INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // add any v6 schema changes here, or leave empty if only entity list changed
+            }
+        }
+
         fun getDatabase(context: Context): DiaryDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -99,10 +125,11 @@ abstract class DiaryDatabase : RoomDatabase() {
                     DiaryDatabase::class.java,
                     "diary_db"
                 )
-                    .addMigrations(
-                        MIGRATION_2_3,
-                        MIGRATION_3_4
-                    )
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+
+                    .fallbackToDestructiveMigration()
+//                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+
                     .build()
                     .also { INSTANCE = it }
             }

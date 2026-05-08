@@ -2,6 +2,7 @@
 
 package com.aburv.kurippidu
 
+//import TodoEntity
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.*
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import androidx.compose.ui.text.style.TextDecoration
 
 class DiaryViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -74,6 +76,91 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /* ---------------- To-Do ---------------- */
+
+
+    var todos by mutableStateOf<List<TodoEntity>?>(null)  // null = not yet loaded
+
+
+        private set
+
+    // REPLACE your loadTodos function:
+    fun loadTodos(date: LocalDate) {
+        viewModelScope.launch {
+            todos = null
+            val daily = dao.getTodosForDate(activeDiaryId, date.toString())
+                .filter { it.type == "DAILY" }
+
+            val overrides = dao.getTodosForDate(activeDiaryId, date.toString())
+                .filter { it.type == "DAILY_OVERRIDE" }
+
+            val recurring = dao.getRecurringTodosForDate(activeDiaryId, date.toString())
+
+            // For each recurring task, check if there's an override for this date.
+            // If yes, show the override (with correct isDone state).
+            // If no, show the recurring task as-is (isDone = false).
+            val recurringMerged = recurring.map { recurringTodo ->
+                val override = overrides.firstOrNull { it.title == recurringTodo.title }
+                override ?: recurringTodo
+            }
+
+            todos = (daily + recurringMerged).sortedBy { it.id }
+        }
+    }
+
+    // ADD this new function for creating recurring tasks:
+    fun addRecurringTodo(
+        title: String,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ) {
+        viewModelScope.launch {
+            val todo = TodoEntity(
+                diaryId = activeDiaryId,
+                title = title,
+                date = startDate.toString(),   // anchor date
+                type = "RECURRING",
+                startDate = startDate.toString(),
+                endDate = endDate.toString(),
+                isDone = false
+            )
+            dao.insertTodo(todo)
+            loadRecurringTodos()
+            loadTodos(currentDate)
+            loadEntryDates()
+        }
+    }
+
+    // UPDATE toggleTodo — recurring todos need special handling
+// because isDone should be per-day, not global.
+// Simplest approach: clone as a DAILY todo for that specific day.
+    fun toggleRecurringTodo(todo: TodoEntity, date: LocalDate) {
+        viewModelScope.launch {
+            // Check if a daily override exists for this date
+            val existingOverride = dao.getTodosForDate(activeDiaryId, date.toString())
+                .firstOrNull { it.title == todo.title && it.type == "DAILY_OVERRIDE" }
+
+            if (existingOverride != null) {
+                dao.updateTodo(existingOverride.copy(isDone = !existingOverride.isDone))
+            } else {
+                // Create a daily override for just this date
+                dao.insertTodo(
+                    TodoEntity(
+                        diaryId = activeDiaryId,
+                        title = todo.title,
+                        date = date.toString(),
+                        type = "DAILY_OVERRIDE",
+                        startDate = todo.startDate,
+                        endDate = todo.endDate,
+                        isDone = true
+                    )
+                )
+            }
+            loadTodos(date)
+        }
+    }
+
+
     /* ---------------- LOAD ---------------- */
 
     private suspend fun loadAllEntries() {
@@ -124,6 +211,7 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
 
         saveState = SaveState.SAVED
         loadAllEntries()
+        loadEntryDates()   // 🔥 refresh calendar
     }
 
     fun saveCurrentDiary() {
@@ -200,6 +288,8 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         loadAllEntries()
     }
 
+
+
     /* ---------------- TEXT PARSER ---------------- */
 
     data class ParsedDiary(
@@ -260,6 +350,20 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         return null
+    }
+
+
+
+    fun toggleTodo(todo: TodoEntity, date: LocalDate = currentDate) {
+        viewModelScope.launch {
+            when (todo.type) {
+                "RECURRING" -> toggleRecurringTodo(todo, date)
+                else -> {
+                    dao.updateTodo(todo.copy(isDone = !todo.isDone))
+                    loadTodos(date)
+                }
+            }
+        }
     }
 
     /* ---------------- FORMAT ---------------- */
@@ -383,6 +487,8 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
             isReady = true
             loadAllEntries()
             loadDiaryForDate(currentDate)
+            loadEntryDates()
+            loadTodos(currentDate)
         }
     }
 
@@ -394,6 +500,94 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
                 diaryText = TextFieldValue("")
                 currentDate = LocalDate.now()
             }
+        }
+    }
+
+    var entryDates by mutableStateOf<Set<LocalDate>>(emptySet())
+        private set
+
+    fun loadEntryDates() {
+        viewModelScope.launch {
+            val dates = dao.getAllEntryDates(activeDiaryId)
+            entryDates = dates.mapNotNull {
+                runCatching { LocalDate.parse(it) }.getOrNull()
+            }.toSet()
+        }
+    }
+
+    fun addTodo(text: String, date: LocalDate) {
+        viewModelScope.launch {
+
+            // ✅ STEP 1: Ensure diary entry exists
+            val existing = dao.getEntryByDate(
+                activeDiaryId,
+                date.toString()
+            )
+
+            if (existing == null) {
+                dao.insert(
+                    DiaryEntity(
+                        diaryOwnerId = activeDiaryId,
+                        date = date.toString(),
+                        content = ""   // empty content
+                    )
+                )
+            }
+
+            // ✅ STEP 2: Insert todo
+            val todo = TodoEntity(
+                diaryId = activeDiaryId,
+                title = text,
+                date = date.toString(),
+                type = "DAILY"
+            )
+
+            dao.insertTodo(todo)
+
+            // ✅ STEP 3: refresh
+            loadTodos(date)
+            loadDiaryForDate(date)
+            loadEntryDates()   // 🔥 important for calendar dot
+        }
+    }
+
+    // ADD this function to DiaryViewModel:
+    fun deleteRecurringTodo(todo: TodoEntity) {
+        viewModelScope.launch {
+            dao.deleteTodo(todo)
+            // ✅ FIX 1: also delete all DAILY_OVERRIDEs that belong to this task
+            dao.deleteOverridesForRecurringTask(activeDiaryId, todo.title)
+            loadRecurringTodos()   // ✅ refresh the list
+            loadTodos(currentDate) // ✅ refresh current day view
+        }
+    }
+
+    fun updateRecurringTodoDates(todo: TodoEntity, newStart: LocalDate, newEnd: LocalDate) {
+        viewModelScope.launch {
+            dao.updateTodo(
+                todo.copy(
+                    startDate = newStart.toString(),
+                    endDate = newEnd.toString()
+                )
+            )
+            loadRecurringTodos()
+            loadTodos(currentDate)
+        }
+    }
+
+    // Also ADD this to fetch all recurring todos for management screen:
+    var recurringTodos by mutableStateOf<List<TodoEntity>>(emptyList())
+        private set
+
+    fun loadRecurringTodos() {
+        viewModelScope.launch {
+            recurringTodos = dao.getAllRecurringTodos(activeDiaryId)
+        }
+    }
+    fun deleteTodo(todo: TodoEntity) {
+        viewModelScope.launch {
+            dao.deleteTodo(todo)
+            loadTodos(currentDate)
         }
     }
 

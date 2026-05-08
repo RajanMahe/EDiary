@@ -1,6 +1,8 @@
 package com.aburv.kurippidu.data
 
+
 import androidx.room.*
+import com.aburv.kurippidu.TodoEntity
 
 @Dao
 interface DiaryDao {
@@ -21,7 +23,10 @@ interface DiaryDao {
 
 
 
+
     /* ---------------- ENTRIES ---------------- */
+
+
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entry: DiaryEntity)
@@ -75,6 +80,55 @@ interface DiaryDao {
 
     @Query("SELECT COUNT(*) FROM entries WHERE diaryOwnerId = :diaryId")
     suspend fun getEntryCountForDiary(diaryId: Int): Int
+
+    @Query("""
+    SELECT date FROM entries
+    WHERE diaryOwnerId = :diaryId
+""")
+    suspend fun getAllEntryDates(diaryId: Int): List<String>
+
+    @Insert
+    suspend fun insertTodo(todo: TodoEntity)
+
+
+    @Update
+    suspend fun updateTodo(todo: TodoEntity)
+
+    @Query("SELECT * FROM todo WHERE diaryId = :diaryId AND date = :date")
+    suspend fun getTodosForDate(
+        diaryId: Int,
+        date: String
+    ): List<TodoEntity>
+
+    // ADD THIS to DiaryDao:
+    @Query("""
+    SELECT * FROM todo 
+    WHERE diaryId = :diaryId 
+    AND type = 'RECURRING'
+    AND startDate <= :date 
+    AND endDate >= :date
+""")
+    suspend fun getRecurringTodosForDate(
+        diaryId: Int,
+        date: String
+    ): List<TodoEntity>
+
+    @Query("SELECT * FROM todo WHERE diaryId = :diaryId AND type = 'RECURRING'")
+    suspend fun getAllRecurringTodos(diaryId: Int): List<TodoEntity>
+
+    @Delete
+    suspend fun deleteTodo(todo: TodoEntity)
+
+    // ADD to DiaryDao.kt:
+    @Query("""
+    DELETE FROM todo 
+    WHERE diaryId = :diaryId 
+    AND title = :title 
+    AND type = 'DAILY_OVERRIDE'
+""")
+    suspend fun deleteOverridesForRecurringTask(diaryId: Int, title: String)
+
+
 
 
 }
