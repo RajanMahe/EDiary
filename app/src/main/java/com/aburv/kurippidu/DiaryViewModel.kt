@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.*
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.time.format.DateTimeFormatterBuilder
 import androidx.compose.ui.text.style.TextDecoration
 
 class DiaryViewModel(application: Application) : AndroidViewModel(application) {
@@ -337,15 +338,40 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     private fun parseDateSafe(line: String): LocalDate? {
         val cleaned = line.trim()
 
-        val formats = listOf(
+        // ── Strict numeric formats ──
+        val strictFormats = listOf(
             DateTimeFormatter.ofPattern("dd-MM-yyyy"),
             DateTimeFormatter.ofPattern("yyyy-MM-dd"),
-            DateTimeFormatter.ofPattern("dd.MM.yyyy")
+            DateTimeFormatter.ofPattern("dd.MM.yyyy"),
+            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
         )
+        strictFormats.forEach { fmt ->
+            runCatching { return LocalDate.parse(cleaned, fmt) }
+        }
 
-        formats.forEach {
-            runCatching {
-                return LocalDate.parse(cleaned, it)
+        // ── Human-readable formats — CASE INSENSITIVE ──
+        // ✅ parseCaseInsensitive() is the KEY fix — "may" and "May" both match
+        // Handles: "5 may 2026", "05 May 2026", "5 MMMM 2026", "May 5, 2026"
+        val humanPatterns = listOf(
+            "d MMM yyyy",
+            "dd MMM yyyy",
+            "d MMMM yyyy",
+            "dd MMMM yyyy",
+            "d MMM, yyyy",
+            "MMM d, yyyy",
+            "MMM d yyyy",
+            "MMMM d, yyyy",
+            "MMMM d yyyy",
+        )
+        humanPatterns.forEach { pattern ->
+            listOf(Locale.ENGLISH, Locale.getDefault()).forEach { locale ->
+                runCatching {
+                    val fmt = DateTimeFormatterBuilder()
+                        .parseCaseInsensitive()   // ✅ THIS is what was missing
+                        .appendPattern(pattern)
+                        .toFormatter(locale)
+                    return LocalDate.parse(cleaned, fmt)
+                }
             }
         }
 
