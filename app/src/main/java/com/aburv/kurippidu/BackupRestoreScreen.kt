@@ -350,7 +350,8 @@ fun BackupRestoreScreen(
             title = { Text("Restore backup") },
             text = {
                 Text(
-                    "${backup.diaries.size} diaries, $entries entries and $tasks tasks will be restored. " +
+                    "${count(backup.diaries.size, "diary", "diaries")}, ${count(entries, "entry", "entries")} " +
+                            "and ${count(tasks, "task", "tasks")} will be restored. " +
                             "Diaries with the same name are combined; a day that already has an entry " +
                             "gets the backup's version."
                 )
@@ -361,7 +362,7 @@ fun BackupRestoreScreen(
                         isRestoring = true
                         val message = try {
                             val summary = backupViewModel.restore(backup)
-                            "Restored ${summary.diaries} diaries and ${summary.entries} entries"
+                            "Restored ${count(summary.diaries, "diary", "diaries")} and ${count(summary.entries, "entry", "entries")}"
                         } catch (e: Exception) {
                             "Restore failed. Nothing was changed."
                         }
@@ -479,6 +480,9 @@ private fun ImportPreviewSheet(text: String, viewModel: DiaryViewModel, onDone: 
         }
     }
 }
+
+/** "1 diary", "3 diaries". */
+internal fun count(n: Int, one: String, many: String) = "$n ${if (n == 1) one else many}"
 
 private fun AutoBackupFrequency.label() = when (this) {
     AutoBackupFrequency.OFF -> "Off"

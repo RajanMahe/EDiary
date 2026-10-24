@@ -202,10 +202,10 @@ class BackupRestoreScreenTest {
         compose.onNodeWithText("Restore from backup").tap()
         pickerReturns(nextStartedIntent(), file)
 
-        waitFor(hasText("1 diaries, 1 entries and 0 tasks", substring = true))
+        waitFor(hasText("1 diary, 1 entry and 0 tasks", substring = true))
         compose.onNodeWithText("Restore").tap()
 
-        waitFor(hasText("Restored 1 diaries and 1 entries"))
+        waitFor(hasText("Restored 1 diary and 1 entry"))
         val food = runBlocking { data.dao.getDiaryByTitle("Food") }!!
         assertEquals("Dosa", runBlocking { data.repository.getEntry(food.diaryId, LocalDate.of(2026, 3, 1)) }?.content)
     }
