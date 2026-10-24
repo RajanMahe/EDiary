@@ -25,6 +25,12 @@ interface DiaryDao {
     @Query("SELECT COUNT(*) FROM diaries")
     suspend fun getDiaryCount(): Int
 
+    @Query("SELECT * FROM diaries ORDER BY createdAt")
+    suspend fun getAllDiaries(): List<DiaryOwnerEntity>
+
+    @Query("SELECT * FROM diaries WHERE title = :title ORDER BY diaryId LIMIT 1")
+    suspend fun getDiaryByTitle(title: String): DiaryOwnerEntity?
+
     // Re-emits whenever a diary or any entry changes, so counts never go stale
     @Query("""
         SELECT diaries.*,
@@ -38,6 +44,9 @@ interface DiaryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entry: DiaryEntity)
+
+    @Update
+    suspend fun updateEntry(entry: DiaryEntity)
 
     @Query("SELECT * FROM entries WHERE diaryOwnerId = :diaryId AND date = :date")
     suspend fun getEntryByDate(diaryId: Int, date: String): DiaryEntity?
@@ -101,4 +110,7 @@ interface DiaryDao {
 
     @Query("DELETE FROM todo WHERE diaryId = :diaryId")
     suspend fun deleteTodosForDiary(diaryId: Int)
+
+    @Query("SELECT * FROM todo WHERE diaryId = :diaryId ORDER BY id")
+    suspend fun getAllTodos(diaryId: Int): List<TodoEntity>
 }

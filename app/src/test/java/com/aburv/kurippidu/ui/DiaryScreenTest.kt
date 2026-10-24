@@ -184,11 +184,11 @@ class DiaryScreenTest {
     fun `system Back on Backup screen closes only that screen`() {
         compose.onNodeWithContentDescription("More").tap()
         compose.onNodeWithText("Backup & Restore").tap()
-        waitFor(hasText("Export as JSON"))
+        waitFor(hasText("Export all diaries"))
 
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
 
-        waitForGone(hasText("Export as JSON"))
+        waitForGone(hasText("Export all diaries"))
         assertFalse(compose.activity.isFinishing)
         compose.onNodeWithContentDescription("Add Todo").assertExists()
     }

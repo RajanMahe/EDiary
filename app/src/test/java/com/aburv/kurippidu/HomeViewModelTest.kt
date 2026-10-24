@@ -31,7 +31,7 @@ class HomeViewModelTest {
     @Before
     fun setUp() {
         data = TestRepository()
-        viewModel = HomeViewModel(ApplicationProvider.getApplicationContext<Application>())
+        viewModel = data.viewModel()
     }
 
     @After

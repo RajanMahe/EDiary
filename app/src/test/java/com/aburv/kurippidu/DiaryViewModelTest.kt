@@ -62,7 +62,7 @@ class DiaryViewModelTest {
     @Before
     fun setUp() {
         data = TestRepository()
-        viewModel = DiaryViewModel(app) // creates the default "My Diary"
+        viewModel = data.viewModel() // creates the default "My Diary"
         eventually {
             diaryId = runBlocking { data.dao.observeDiariesWithCountsOnce() }.single().diary.diaryId
         }

@@ -48,7 +48,7 @@ class SheetsTest {
     @Before
     fun setUp() {
         data = TestRepository()
-        viewModel = DiaryViewModel(ApplicationProvider.getApplicationContext<Application>())
+        viewModel = data.viewModel()
         eventually { diaryId = runBlocking { data.dao.observeDiariesWithCountsOnce() }.single().diary.diaryId }
         viewModel.setActiveDiary(diaryId)
     }

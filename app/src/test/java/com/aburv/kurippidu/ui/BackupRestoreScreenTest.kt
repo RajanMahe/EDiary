@@ -26,7 +26,12 @@ import com.aburv.kurippidu.testutil.tap
 import com.aburv.kurippidu.ui.theme.DiaryTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import org.json.JSONArray
+import com.aburv.kurippidu.AutoBackupFrequency
+import com.aburv.kurippidu.data.backup.BackupCodec
+import com.aburv.kurippidu.data.backup.BackupDiary
+import com.aburv.kurippidu.data.backup.BackupEntry
+import com.aburv.kurippidu.data.backup.FullBackup
+import com.aburv.kurippidu.data.backup.ParsedBackup
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -65,7 +70,11 @@ class BackupRestoreScreenTest {
     @Before
     fun setUp() {
         data = TestRepository()
-        viewModel = DiaryViewModel(ApplicationProvider.getApplicationContext<Application>())
+        runBlocking {
+            BackupPreferences.setAutoBackupFolder(context, null)
+            BackupPreferences.setAutoBackupFrequency(context, AutoBackupFrequency.OFF)
+        }
+        viewModel = data.viewModel()
         eventually { diaryId = runBlocking { data.dao.observeDiariesWithCountsOnce() }.single().diary.diaryId }
         viewModel.setActiveDiary(diaryId)
         runBlocking {
@@ -109,15 +118,16 @@ class BackupRestoreScreenTest {
     @Test
     fun `shows sections and the entry count`() {
         compose.onNodeWithText("Backup & Restore").assertExists()
-        compose.onNodeWithText("Export").assertExists()
-        compose.onNodeWithText("Import").assertExists()
+        compose.onNodeWithText("Full backup").assertExists()
+        compose.onNodeWithText("Automatic backup").assertExists()
+        compose.onNodeWithText("This diary").assertExists()
         compose.onNodeWithText("Total entries").assertExists()
         waitFor(hasText("2"))
     }
 
     @Test
-    fun `export as JSON writes the file the user picked`() {
-        compose.onNodeWithText("Export as JSON").tap()
+    fun `export all diaries writes a full backup to the file the user picked`() {
+        compose.onNodeWithText("Export all diaries").tap()
 
         val request = nextStartedIntent()
         assertEquals(Intent.ACTION_CREATE_DOCUMENT, request.action)
@@ -129,9 +139,9 @@ class BackupRestoreScreenTest {
         pickerReturns(request, file)
 
         waitFor(hasText("Backup saved"))
-        val saved = JSONArray(file.readText())
-        assertEquals(2, saved.length())
-        assertEquals("First", saved.getJSONObject(0).getString("content"))
+        val saved = (BackupCodec.decode(file.readText()) as ParsedBackup.Full).backup
+        assertEquals(2, saved.version)
+        assertEquals(listOf("First", "Second"), saved.diaries.single().entries.map { it.content })
         assertEquals(1, exportFinished)
         assertNotNull(runBlocking { BackupPreferences.lastBackupTime(context).first() })
     }
@@ -151,19 +161,19 @@ class BackupRestoreScreenTest {
 
     @Test
     fun `cancelling the save picker re-enables the lock and writes nothing`() {
-        compose.onNodeWithText("Export as JSON").tap()
+        compose.onNodeWithText("Export all diaries").tap()
         val request = nextStartedIntent()
         compose.runOnUiThread { shadowOf(compose.activity).receiveResult(request, Activity.RESULT_CANCELED, null) }
         eventually { assertEquals(1, exportFinished) }
     }
 
     @Test
-    fun `restore from a JSON file after confirming`() {
+    fun `old single-diary backup restores into this diary`() {
         val file = File.createTempFile("restore", ".json").apply {
             writeText("""[{"date":"2026-02-01","content":"From backup"}]""")
         }
 
-        compose.onNodeWithText("Restore from JSON").tap()
+        compose.onNodeWithText("Restore from backup").tap()
         val request = nextStartedIntent()
         assertEquals(Intent.ACTION_OPEN_DOCUMENT, request.action)
         pickerReturns(request, file)
@@ -176,6 +186,64 @@ class BackupRestoreScreenTest {
         }
         // Merge: existing entries are kept
         assertEquals("First", runBlocking { data.repository.getEntry(diaryId, day) }?.content)
+    }
+
+    @Test
+    fun `full backup restores other diaries too`() {
+        val backup = FullBackup(
+            exportedAt = "2026-01-10T10:00:00",
+            diaries = listOf(
+                BackupDiary(title = "Food", entries = listOf(BackupEntry("2026-03-01", "Dosa")))
+            )
+        )
+        val file = File.createTempFile("restore", ".json").apply { writeText(BackupCodec.encode(backup)) }
+
+        compose.onNodeWithText("Restore from backup").tap()
+        pickerReturns(nextStartedIntent(), file)
+
+        waitFor(hasText("1 diaries, 1 entries and 0 tasks", substring = true))
+        compose.onNodeWithText("Restore").tap()
+
+        waitFor(hasText("Restored 1 diaries and 1 entries"))
+        val food = runBlocking { data.dao.getDiaryByTitle("Food") }!!
+        assertEquals("Dosa", runBlocking { data.repository.getEntry(food.diaryId, LocalDate.of(2026, 3, 1)) }?.content)
+    }
+
+    @Test
+    fun `a damaged backup is refused with a reason`() {
+        val file = File.createTempFile("restore", ".json").apply {
+            writeText("""{"app":"kurippidu","version":99,"exportedAt":"x"}""")
+        }
+        compose.onNodeWithText("Restore from backup").tap()
+        pickerReturns(nextStartedIntent(), file)
+        waitFor(hasText("newer version", substring = true))
+    }
+
+    @Test
+    fun `automatic backup - pick a folder, it turns on daily, back up now`() {
+        compose.onNodeWithText("Not chosen. Tap to pick a folder.").assertExists()
+        compose.onNodeWithText("Backup folder").tap()
+
+        val request = nextStartedIntent()
+        assertEquals(Intent.ACTION_OPEN_DOCUMENT_TREE, request.action)
+        val dir = java.nio.file.Files.createTempDirectory("autobackup").toFile()
+        pickerReturns(request, dir)
+
+        waitFor(hasText(dir.name))
+        waitFor(hasText("Every day"))
+
+        compose.onNodeWithText("Back up now").tap()
+        waitFor(hasText("Saved kurippidu_auto_", substring = true))
+        assertTrue(dir.list()!!.any { it.startsWith("kurippidu_auto_") })
+
+        // Change to weekly
+        compose.onNodeWithText("How often").tap()
+        compose.onNodeWithText("Every week").tap()
+        waitFor(hasText("Every week"))
+        assertEquals(
+            AutoBackupFrequency.WEEKLY,
+            runBlocking { BackupPreferences.autoBackupFrequency(context).first() }
+        )
     }
 
     @Test

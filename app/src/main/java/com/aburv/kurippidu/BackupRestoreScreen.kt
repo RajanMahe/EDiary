@@ -1,46 +1,51 @@
 package com.aburv.kurippidu
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.font.FontWeight
-
-import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.lifecycle.viewmodel.compose.viewModel
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aburv.kurippidu.backup.BackupViewModel
+import com.aburv.kurippidu.data.backup.BackupFormatException
+import com.aburv.kurippidu.data.backup.FullBackup
+import com.aburv.kurippidu.data.backup.ParsedBackup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
 import java.time.LocalDate
+import java.util.Date
+import java.util.Locale
 
-//-------------------restoreJsonLauncher------------//
-
-//-------------------ImportTextLauncher------------//
-
+/**
+ * Backup & Restore.
+ *
+ * Full backup and automatic backup cover every diary. When opened from a diary
+ * ([viewModel] not null) it also offers that diary's Markdown export and text import.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
-
 @Composable
 fun BackupRestoreScreen(
-
-    viewModel: DiaryViewModel = viewModel(),
+    viewModel: DiaryViewModel?,
     onExportStarted: () -> Unit,
     onExportFinished: () -> Unit,
-    onBack: () -> Unit
-)
-
-{
+    onBack: () -> Unit,
+    backupViewModel: BackupViewModel = viewModel()
+) {
     // System Back closes this screen instead of leaving the diary
     BackHandler(onBack = onBack)
 
@@ -50,35 +55,39 @@ fun BackupRestoreScreen(
     val clipboardManager = LocalClipboardManager.current
 
     var pendingImportText by remember { mutableStateOf<String?>(null) }
-    var pendingImportCount by remember { mutableStateOf(0) }
-
-    var pendingRestoreJson by remember { mutableStateOf<String?>(null) }
-    var showRestoreConfirm by remember { mutableStateOf(false) }
-
-    var previewDates by remember {
-        mutableStateOf<List<LocalDate>>(emptyList())
-    }
-
+    var pendingFullRestore by remember { mutableStateOf<FullBackup?>(null) }
+    var pendingDiaryRestore by remember { mutableStateOf<String?>(null) }
     var isRestoring by remember { mutableStateOf(false) }
+    var showFrequencyDialog by remember { mutableStateOf(false) }
+    var totalEntries by remember { mutableStateOf<Int?>(null) }
 
-    val restoreJsonLauncher = rememberLauncherForActivityResult(
+    fun readText(uri: Uri): String =
+        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            ?: error("Could not open file")
+
+    /* ---------------- PICKERS ---------------- */
+
+    val restoreLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        onExportFinished() // ⭐ re-enable biometric (success OR cancel)
+        onExportFinished() // re-enable the lock (picked or cancelled)
         if (uri == null || isRestoring) return@rememberLauncherForActivityResult
 
         scope.launch {
             try {
-                val json = context.contentResolver
-                    .openInputStream(uri)
-                    ?.bufferedReader()
-                    ?.use { it.readText() }
-                    ?: return@launch
-
-                pendingRestoreJson = json
-                showRestoreConfirm = true   // 🔥 show dialog
+                val text = withContext(Dispatchers.IO) { readText(uri) }
+                when (val parsed = backupViewModel.parse(text)) {
+                    is ParsedBackup.Full -> pendingFullRestore = parsed.backup
+                    is ParsedBackup.SingleDiary ->
+                        if (viewModel != null) pendingDiaryRestore = text
+                        else snackbarHostState.showSnackbar(
+                            "This is a single-diary backup. Open a diary and restore it there."
+                        )
+                }
+            } catch (e: BackupFormatException) {
+                snackbarHostState.showSnackbar(e.message ?: "Invalid backup file")
             } catch (e: Exception) {
-                snackbarHostState.showSnackbar("Invalid JSON file")
+                snackbarHostState.showSnackbar("Invalid backup file")
             }
         }
     }
@@ -86,42 +95,36 @@ fun BackupRestoreScreen(
     val importTxtLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        onExportFinished() // ⭐ re-enable biometric (success OR cancel)
-
+        onExportFinished()
         if (uri == null) return@rememberLauncherForActivityResult
-
         scope.launch {
-            val text = context.contentResolver
-                .openInputStream(uri)
-                ?.bufferedReader()
-                ?.use { it.readText() }
-                ?: return@launch
-
-            pendingImportText = text
-            pendingImportCount = viewModel.previewImportCount(text)
-            previewDates = viewModel.previewImportDates(text)
+            pendingImportText = runCatching { withContext(Dispatchers.IO) { readText(uri) } }.getOrNull()
         }
     }
 
-    //-------------------Export (system "Save to" picker)------------//
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        onExportFinished()
+        if (uri != null) backupViewModel.chooseFolder(uri)
+    }
 
     var pendingExport by remember { mutableStateOf<String?>(null) }
 
-    fun writeExport(uri: android.net.Uri?) {
+    fun writeExport(uri: Uri?) {
         val content = pendingExport
         pendingExport = null
         if (uri == null || content == null) {
-            onExportFinished() // ⭐ re-enable biometric (cancelled)
+            onExportFinished() // cancelled
             return
         }
         scope.launch {
             val message = try {
                 withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use {
-                        it.write(content.toByteArray())
-                    } ?: error("Could not open file")
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                        ?: error("Could not open file")
                 }
-                BackupPreferences.setLastBackupTime(context, System.currentTimeMillis())
+                backupViewModel.recordManualBackup()
                 "Backup saved"
             } catch (e: Exception) {
                 "Export failed: ${e.message}"
@@ -141,249 +144,14 @@ fun BackupRestoreScreen(
         ActivityResultContracts.CreateDocument("text/markdown")
     ) { writeExport(it) }
 
-    var totalEntries by remember { mutableStateOf<Int?>(null) }
-    var lastBackupTime by remember { mutableStateOf<Long?>(null) }
-
-    var showAllDates by remember { mutableStateOf(false) }
-
-    if (pendingImportText != null) {
-        ModalBottomSheet(
-            onDismissRequest = {
-                pendingImportText = null
-                showAllDates = false
-            }
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    "Import preview",
-                    style = MaterialTheme.typography.titleMedium
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                Text("Detected $pendingImportCount entries")
-
-                Spacer(Modifier.height(12.dp))
-
-                val dateFormatter = remember {
-                    java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy")
-                }
-
-                val visibleDates =
-                    if (showAllDates || previewDates.size <= 6) {
-                        previewDates
-                    } else {
-                        previewDates.take(3) +
-                                listOf<LocalDate?>(null) +
-                                previewDates.takeLast(3)
-                    }
-
-                visibleDates.forEach { date ->
-                    if (date == null) {
-                        Text("• …", modifier = Modifier.padding(vertical = 4.dp))
-                    } else {
-                        Text(
-                            "• ${date.format(dateFormatter)}",
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        )
-                    }
-                }
-
-                if (!showAllDates && previewDates.size > 6) {
-                    TextButton(
-                        onClick = { showAllDates = true }
-                    ) {
-                        Text("View all")
-                    }
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                Button(
-                    enabled = pendingImportCount > 0,
-                    onClick = {
-                        scope.launch {
-                            val rawText = pendingImportText ?: return@launch
-
-                            viewModel.importFromTextSafe(rawText)
-
-                            // Cleanup UI state
-                            pendingImportText = null
-                            showAllDates = false
-                        }
-                    }
-                ) {
-                    Text("Import")
-                }
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        totalEntries = viewModel.getTotalEntryCount()
-
-        BackupPreferences
-            .lastBackupTime(context)
-            .collect { time ->
-                lastBackupTime = time
-            }
-    }
-
-        Scaffold(
-
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-
-        topBar = {
-            TopAppBar(
-                title = { Text("Backup & Restore") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                }
-            )
-        }
-    ) { padding ->
-
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-        ) {
-            /* ---------- EXPORT ---------- */
-
-            item {
-                SectionHeader("Export")
-            }
-
-            item {
-                SettingsItem(
-                    title = "Export as JSON",
-                    subtitle = "Full backup",
-                    onClick = {
-                        scope.launch {
-                            onExportStarted() // ⭐ disable biometric while picker is open
-                            pendingExport = viewModel.exportAsJson()
-                            exportJsonLauncher.launch("kurippidu_backup_${LocalDate.now()}.json")
-                        }
-                    }
-                )
-            }
-
-            item {
-                SettingsItem(
-                    title = "Export as Markdown",
-                    subtitle = "Human-readable",
-                    onClick = {
-                        scope.launch {
-                            onExportStarted() // ⭐ disable biometric while picker is open
-                            pendingExport = viewModel.exportAsMarkdown()
-                            exportMdLauncher.launch("kurippidu_${LocalDate.now()}.md")
-                        }
-                    }
-                )
-            }
-
-            item {
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
-            }
-
-            /* ---------- IMPORT ---------- */
-
-            item {
-                SectionHeader("Import")
-            }
-
-            item {
-                SettingsItem(
-                    title = "Restore from JSON",
-                    subtitle = if (isRestoring) "Restoring…" else "Restore a backup file",
-                    onClick = if (isRestoring) null else {
-                        {
-                            onExportStarted() // ⭐ disable biometric temporarily
-
-                            restoreJsonLauncher.launch(arrayOf("application/json")) }
-                    }
-                )
-            }
-
-            item {
-                SettingsItem(
-                    title = "Import from TXT",
-                    subtitle = "Date-based text import",
-                    onClick = {
-                        onExportStarted() // ⭐ disable biometric temporarily
-
-                        importTxtLauncher.launch(
-                            arrayOf("text/plain")
-                        )
-                    }
-                )
-            }
-
-            item {
-                SettingsItem(
-                    title = "Import from Clipboard",
-                    subtitle = "Paste diary text",
-                    onClick = {
-                        val clip = clipboardManager.getText()?.text
-                        if (!clip.isNullOrBlank()) {
-                            pendingImportText = clip
-                            pendingImportCount = viewModel.previewImportCount(clip)
-                        } else {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Clipboard empty")
-                            }
-                        }
-                    }
-                )
-            }
-
-            item {
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
-            }
-
-            /* ---------- STATUS ---------- */
-
-            item {
-                SectionHeader("Status")
-            }
-
-            item {
-                SettingsItem(
-                    title = "Total entries",
-                    subtitle = totalEntries?.toString() ?: "—"
-                )
-            }
-
-            item {
-                val formatted = lastBackupTime?.let {
-                    java.text.SimpleDateFormat(
-                        "dd MMM yyyy, hh:mm a",
-                        java.util.Locale.getDefault()
-                    ).format(java.util.Date(it))
-                } ?: "—"
-
-                SettingsItem(
-                    title = "Last backup",
-                    subtitle = formatted
-                )
-            }
-        }
-    }
-    LaunchedEffect(pendingImportText) {
-        pendingImportText?.let {
-            previewDates = viewModel.previewImportDates(it)
-        }
+    LaunchedEffect(viewModel) {
+        totalEntries = viewModel?.getTotalEntryCount()
     }
 
     LaunchedEffect(viewModel) {
-        viewModel.backupEvents.collect { event ->
+        viewModel?.backupEvents?.collect { event ->
             snackbarHostState.showSnackbar(
-                message = when (event) {
+                when (event) {
                     is DiaryViewModel.BackupEvent.Success -> event.message
                     is DiaryViewModel.BackupEvent.Error -> event.message
                 }
@@ -391,46 +159,317 @@ fun BackupRestoreScreen(
         }
     }
 
-    if (showRestoreConfirm && pendingRestoreJson != null) {
-        AlertDialog(
-            onDismissRequest = {
-                showRestoreConfirm = false
-                pendingRestoreJson = null
-            },
-            title = { Text("Restore backup") },
-            text = { Text("Entries from the backup will be added. If a day already has an entry, the backup's version replaces it.") },
-            confirmButton = {
-                TextButton(
+    /* ---------------- SCREEN ---------------- */
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Backup & Restore") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            /* ---------- FULL BACKUP ---------- */
+
+            item { SectionHeader("Full backup") }
+            item {
+                SettingsItem(
+                    title = "Export all diaries",
+                    subtitle = "Every diary, task and setting in one file",
                     onClick = {
                         scope.launch {
-                            isRestoring = true
-
-                            viewModel.restoreFromJson(
-                                pendingRestoreJson!!,
-                                DiaryViewModel.RestoreMode.MERGE
-                            )
-                            isRestoring = false
-                            showRestoreConfirm = false
-                            pendingRestoreJson = null
+                            onExportStarted() // keep the lock off while the picker is open
+                            pendingExport = backupViewModel.exportAll()
+                            exportJsonLauncher.launch("kurippidu_backup_${LocalDate.now()}.json")
                         }
                     }
-                ) {
-                    Text("Restore")
+                )
+            }
+            item {
+                SettingsItem(
+                    title = "Restore from backup",
+                    subtitle = if (isRestoring) "Restoring…" else "Open a backup file",
+                    onClick = if (isRestoring) null else {
+                        {
+                            onExportStarted()
+                            restoreLauncher.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
+                        }
+                    }
+                )
+            }
+
+            /* ---------- AUTOMATIC BACKUP ---------- */
+
+            item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
+            item { SectionHeader("Automatic backup") }
+            item {
+                SettingsItem(
+                    title = "Backup folder",
+                    subtitle = backupViewModel.folderName ?: "Not chosen. Tap to pick a folder.",
+                    onClick = {
+                        onExportStarted()
+                        folderLauncher.launch(null)
+                    }
+                )
+            }
+            item {
+                SettingsItem(
+                    title = "How often",
+                    subtitle = backupViewModel.frequency.label(),
+                    onClick = if (backupViewModel.folderName == null) null else {
+                        { showFrequencyDialog = true }
+                    }
+                )
+            }
+            if (backupViewModel.folderName != null) {
+                item {
+                    SettingsItem(
+                        title = "Back up now",
+                        subtitle = "Save a backup to the folder straight away",
+                        onClick = {
+                            scope.launch {
+                                val result = backupViewModel.backUpNow()
+                                snackbarHostState.showSnackbar(
+                                    result.fold({ "Saved $it" }, { it.message ?: "Backup failed" })
+                                )
+                            }
+                        }
+                    )
                 }
+            }
+            item {
+                val status = backupViewModel.status
+                SettingsItem(
+                    title = "Last automatic backup",
+                    subtitle = when {
+                        status.lastError != null -> "Failed: ${status.lastError}"
+                        status.lastSuccess != null -> formatTime(status.lastSuccess)
+                        else -> "Not yet"
+                    }
+                )
+            }
+
+            /* ---------- THIS DIARY ---------- */
+
+            if (viewModel != null) {
+                item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
+                item { SectionHeader("This diary") }
+                item {
+                    SettingsItem(
+                        title = "Export as Markdown",
+                        subtitle = "Human-readable",
+                        onClick = {
+                            scope.launch {
+                                onExportStarted()
+                                pendingExport = viewModel.exportAsMarkdown()
+                                exportMdLauncher.launch("kurippidu_${LocalDate.now()}.md")
+                            }
+                        }
+                    )
+                }
+                item {
+                    SettingsItem(
+                        title = "Import from TXT",
+                        subtitle = "Date-based text import",
+                        onClick = {
+                            onExportStarted()
+                            importTxtLauncher.launch(arrayOf("text/plain"))
+                        }
+                    )
+                }
+                item {
+                    SettingsItem(
+                        title = "Import from Clipboard",
+                        subtitle = "Paste diary text",
+                        onClick = {
+                            val clip = clipboardManager.getText()?.text
+                            if (!clip.isNullOrBlank()) {
+                                pendingImportText = clip
+                            } else {
+                                scope.launch { snackbarHostState.showSnackbar("Clipboard empty") }
+                            }
+                        }
+                    )
+                }
+                item {
+                    SettingsItem(title = "Total entries", subtitle = totalEntries?.toString() ?: "—")
+                }
+            }
+
+            item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
+            item {
+                SettingsItem(
+                    title = "Last backup",
+                    subtitle = backupViewModel.lastManualBackup?.let(::formatTime) ?: "—"
+                )
+            }
+        }
+    }
+
+    /* ---------------- DIALOGS ---------------- */
+
+    if (viewModel != null && pendingImportText != null) {
+        ImportPreviewSheet(
+            text = pendingImportText!!,
+            viewModel = viewModel,
+            onDone = { pendingImportText = null }
+        )
+    }
+
+    pendingFullRestore?.let { backup ->
+        val entries = backup.diaries.sumOf { it.entries.size }
+        val tasks = backup.diaries.sumOf { it.todos.size }
+        AlertDialog(
+            onDismissRequest = { pendingFullRestore = null },
+            title = { Text("Restore backup") },
+            text = {
+                Text(
+                    "${backup.diaries.size} diaries, $entries entries and $tasks tasks will be restored. " +
+                            "Diaries with the same name are combined; a day that already has an entry " +
+                            "gets the backup's version."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        isRestoring = true
+                        val message = try {
+                            val summary = backupViewModel.restore(backup)
+                            "Restored ${summary.diaries} diaries and ${summary.entries} entries"
+                        } catch (e: Exception) {
+                            "Restore failed. Nothing was changed."
+                        }
+                        isRestoring = false
+                        pendingFullRestore = null
+                        viewModel?.reloadCurrentDate()
+                        snackbarHostState.showSnackbar(message)
+                    }
+                }) { Text("Restore") }
             },
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        showRestoreConfirm = false
-                        pendingRestoreJson = null
+                TextButton(onClick = { pendingFullRestore = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (viewModel != null && pendingDiaryRestore != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDiaryRestore = null },
+            title = { Text("Restore backup") },
+            text = {
+                Text("This older backup holds one diary. Its entries will be added to this diary; a day that already has an entry gets the backup's version.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        isRestoring = true
+                        viewModel.restoreFromJson(pendingDiaryRestore!!, DiaryViewModel.RestoreMode.MERGE)
+                        isRestoring = false
+                        pendingDiaryRestore = null
                     }
-                ) {
-                    Text("Cancel")
+                }) { Text("Restore") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDiaryRestore = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showFrequencyDialog) {
+        AlertDialog(
+            onDismissRequest = { showFrequencyDialog = false },
+            title = { Text("Automatic backup") },
+            text = {
+                Column {
+                    AutoBackupFrequency.entries.forEach { option ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = option == backupViewModel.frequency,
+                                    onClick = {
+                                        backupViewModel.changeFrequency(option)
+                                        showFrequencyDialog = false
+                                    }
+                                )
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = option == backupViewModel.frequency, onClick = null)
+                            Spacer(Modifier.width(12.dp))
+                            Text(option.label())
+                        }
+                    }
                 }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFrequencyDialog = false }) { Text("Close") }
             }
         )
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ImportPreviewSheet(text: String, viewModel: DiaryViewModel, onDone: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val dates = remember(text) { viewModel.previewImportDates(text) }
+    var showAllDates by remember { mutableStateOf(false) }
+    val dateFormatter = remember { java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy") }
+
+    ModalBottomSheet(onDismissRequest = onDone) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Import preview", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text("Detected ${dates.size} entries")
+            Spacer(Modifier.height(12.dp))
+
+            val visible: List<LocalDate?> =
+                if (showAllDates || dates.size <= 6) dates
+                else dates.take(3) + listOf(null) + dates.takeLast(3)
+            visible.forEach { date ->
+                Text(
+                    if (date == null) "• …" else "• ${date.format(dateFormatter)}",
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
+            }
+            if (!showAllDates && dates.size > 6) {
+                TextButton(onClick = { showAllDates = true }) { Text("View all") }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Button(
+                enabled = dates.isNotEmpty(),
+                onClick = {
+                    scope.launch {
+                        viewModel.importFromTextSafe(text)
+                        onDone()
+                    }
+                }
+            ) { Text("Import") }
+        }
+    }
+}
+
+private fun AutoBackupFrequency.label() = when (this) {
+    AutoBackupFrequency.OFF -> "Off"
+    AutoBackupFrequency.DAILY -> "Every day"
+    AutoBackupFrequency.WEEKLY -> "Every week"
+}
+
+private fun formatTime(millis: Long): String =
+    SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(millis))
+
 @Composable
 private fun SectionHeader(text: String) {
     Text(
@@ -454,12 +493,6 @@ private fun SettingsItem(
         supportingContent = { Text(subtitle) },
         modifier = Modifier
             .fillMaxWidth()
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable { onClick() }
-                } else {
-                    Modifier
-                }
-            )
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
     )
 }

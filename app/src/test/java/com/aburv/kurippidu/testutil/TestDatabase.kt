@@ -34,13 +34,34 @@ class TestRepository {
     val repository = DiaryRepository(db)
     val dao get() = db.diaryDao()
 
+    /** ViewModels made by the test; cleared in [close] so nothing keeps running. */
+    val viewModels = androidx.lifecycle.ViewModelStore()
+
     init {
         DiaryRepository.setInstanceForTests(repository)
+        // The app starts WorkManager automatically; Robolectric tests must do it themselves
+        androidx.work.testing.WorkManagerTestInitHelper.initializeTestWorkManager(
+            ApplicationProvider.getApplicationContext()
+        )
     }
 
+    /** Creates a ViewModel the way the app does, tied to this test. */
+    inline fun <reified T : androidx.lifecycle.ViewModel> viewModel(): T =
+        androidx.lifecycle.ViewModelProvider(
+            viewModels,
+            androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory(
+                ApplicationProvider.getApplicationContext<android.app.Application>()
+            )
+        )[T::class.java]
+
+    /**
+     * Stops the test's ViewModels. The in-memory database is left for the
+     * garbage collector rather than closed, because a ViewModel's last save
+     * may still be finishing on a background thread.
+     */
     fun close() {
+        viewModels.clear()
         DiaryRepository.setInstanceForTests(null)
-        db.close()
     }
 }
 

@@ -153,6 +153,9 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Shows the open day's text again after something else changed it (e.g. a restore). */
+    fun reloadCurrentDate() = loadDiaryForDate(currentDate)
+
     /* ---------------- SAVE ---------------- */
 
     private var autosaveJob: Job? = null
