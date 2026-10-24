@@ -15,7 +15,7 @@ import com.aburv.kurippidu.TodoEntity
         TodoEntity::class
     ],
     version = 6,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
 
@@ -126,9 +126,9 @@ abstract class DiaryDatabase : RoomDatabase() {
                     "diary_db"
                 )
                     .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
-
-                    .fallbackToDestructiveMigration()
-//                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    // Only very old v1 databases are reset (no 1 → 2 migration exists).
+                    // Any other missing migration fails loudly instead of wiping user data.
+                    .fallbackToDestructiveMigrationFrom(1)
 
                     .build()
                     .also { INSTANCE = it }

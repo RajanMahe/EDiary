@@ -19,7 +19,9 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 
@@ -119,6 +121,42 @@ fun BackupRestoreScreen(
             previewDates = viewModel.previewImportDates(text)
         }
     }
+
+    //-------------------Export (system "Save to" picker)------------//
+
+    var pendingExport by remember { mutableStateOf<String?>(null) }
+
+    fun writeExport(uri: android.net.Uri?) {
+        val content = pendingExport
+        pendingExport = null
+        if (uri == null || content == null) {
+            onExportFinished() // ⭐ re-enable biometric (cancelled)
+            return
+        }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use {
+                        it.write(content.toByteArray())
+                    } ?: error("Could not open file")
+                }
+                BackupPreferences.setLastBackupTime(context, System.currentTimeMillis())
+                snackbarHostState.showSnackbar("Backup saved")
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("Export failed: ${e.message}")
+            } finally {
+                onExportFinished()
+            }
+        }
+    }
+
+    val exportJsonLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { writeExport(it) }
+
+    val exportMdLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/markdown")
+    ) { writeExport(it) }
 
     var totalEntries by remember { mutableStateOf<Int?>(null) }
     var lastBackupTime by remember { mutableStateOf<Long?>(null) }
@@ -262,23 +300,9 @@ fun BackupRestoreScreen(
                     subtitle = "Full backup",
                     onClick = {
                         scope.launch {
-
-                            onExportStarted()
-                            try {
-                                val json = viewModel.exportAsJson()
-                                val file = saveToDownloads(context, json, "json")
-                                BackupPreferences.setLastBackupTime(
-                                    context,
-                                    System.currentTimeMillis()
-                                )
-                                snackbarHostState.showSnackbar(
-                                    "Saved to Downloads/EDiary/${file.name}"
-                                )
-
-                            }finally {
-                                onExportFinished()
-                            }
-
+                            onExportStarted() // ⭐ disable biometric while picker is open
+                            pendingExport = viewModel.exportAsJson()
+                            exportJsonLauncher.launch("kurippidu_backup_${LocalDate.now()}.json")
                         }
                     }
                 )
@@ -291,21 +315,9 @@ fun BackupRestoreScreen(
                     subtitle = "Human-readable",
                     onClick = {
                         scope.launch {
-                            onExportStarted()
-try {
-    val md = viewModel.exportAsMarkdown()
-    val file = saveToDownloads(context, md, "md")
-    BackupPreferences.setLastBackupTime(
-        context,
-        System.currentTimeMillis()
-    )
-    snackbarHostState.showSnackbar(
-        "Saved to Downloads/EDiary/${file.name}"
-    )
-}finally {
-    onExportFinished()
-}
-
+                            onExportStarted() // ⭐ disable biometric while picker is open
+                            pendingExport = viewModel.exportAsMarkdown()
+                            exportMdLauncher.launch("kurippidu_${LocalDate.now()}.md")
                         }
                     }
                 )
@@ -434,7 +446,7 @@ try {
                 pendingRestoreJson = null
             },
             title = { Text("Restore backup") },
-            text = { Text("This will overwrite all existing entries.") },
+            text = { Text("Entries from the backup will be added. If a day already has an entry, the backup's version replaces it.") },
             confirmButton = {
                 TextButton(
                     onClick = {

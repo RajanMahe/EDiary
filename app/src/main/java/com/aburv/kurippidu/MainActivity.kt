@@ -1,100 +1,63 @@
 package com.aburv.kurippidu
 
-
-
+import android.app.Activity
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.lifecycleScope
-import com.aburv.kurippidu.ui.theme.DiaryTheme
-import kotlinx.coroutines.launch
-import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.LifecycleEventObserver
-import kotlinx.coroutines.delay
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.DisposableEffect
-
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-
-
-
-
+import com.aburv.kurippidu.ui.theme.DiaryTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
 
-    private var isUnlocked by mutableStateOf(true)
     private var lockMode by mutableStateOf(LockMode.OFF)
-    private var isAuthInProgress by mutableStateOf(false)
-    private var isLockTemporarilyDisabled by mutableStateOf(false)
+    private var lockModeLoaded by mutableStateOf(false)
+    private var isAuthInProgress = false
 
     private var themeMode by mutableStateOf(ThemeMode.LIGHT)
 
-
-
-
-
+    // Locks the app when the whole app goes to the background
+    private val appLifecycleObserver = LifecycleEventObserver { _, event ->
+        if (event == Lifecycle.Event.ON_STOP &&
+            lockMode == LockMode.BIOMETRIC &&
+            !AppLockState.isLockTemporarilyDisabled
+        ) {
+            AppLockState.isUnlocked = false
+            isAuthInProgress = false
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-
-        ProcessLifecycleOwner.get().lifecycle.addObserver(
-            LifecycleEventObserver { _, event ->
-                when (event) {
-                    Lifecycle.Event.ON_STOP -> {
-                        if (lockMode == LockMode.BIOMETRIC &&
-                            !isLockTemporarilyDisabled
-                            ) {
-                            isUnlocked = false
-                            isAuthInProgress = false   // ⭐ CRITICAL FIX
-
-                        }
-                    }
-
-                    Lifecycle.Event.ON_START -> {
-                        if (lockMode == LockMode.BIOMETRIC &&
-                            !isUnlocked &&
-                            !isAuthInProgress
-                        ) {
-                            isAuthInProgress = true
-                            BiometricAuthHelper(
-                                activity = this@MainActivity,
-                                onSuccess = {
-                                    isUnlocked = true
-                                    isAuthInProgress = false
-                                },
-                                onError = {
-                                    isAuthInProgress = false
-                                }
-                            ).authenticate()
-                        }
-                    }
-
-
-
-
-
-                    else -> Unit
-                }
-            }
-        )
-
-
-
         super.onCreate(savedInstanceState)
 
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
 
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         window.statusBarColor = android.graphics.Color.TRANSPARENT
 
@@ -107,11 +70,14 @@ class MainActivity : FragmentActivity() {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-
-
         lifecycleScope.launch {
-            BackupPreferences.lockMode(this@MainActivity).collect {
-                lockMode = it
+            BackupPreferences.lockMode(this@MainActivity).collect { mode ->
+                lockMode = mode
+                if (!lockModeLoaded) {
+                    lockModeLoaded = true
+                    if (mode == LockMode.OFF) AppLockState.isUnlocked = true
+                    else requestUnlock()
+                }
             }
         }
         lifecycleScope.launch {
@@ -119,8 +85,6 @@ class MainActivity : FragmentActivity() {
                 themeMode = it
             }
         }
-
-
 
         setContent {
 
@@ -132,13 +96,28 @@ class MainActivity : FragmentActivity() {
                         isAppearanceLightStatusBars = !darkTheme
                     }
                 }
-                Surface (
+                Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = Color.Transparent
-                    ){
+                ) {
 
-                    when {
-                        lockMode == LockMode.OFF || isUnlocked -> {
+                    // Wait until the saved lock setting is known
+                    if (!lockModeLoaded) {
+                        Box(Modifier.fillMaxSize())
+                        return@Surface
+                    }
+
+                    val isLocked = lockMode == LockMode.BIOMETRIC && !AppLockState.isUnlocked
+
+                    Box(Modifier.fillMaxSize()) {
+
+                        // The NavHost stays alive while locked, so after unlocking
+                        // the user is back on the same screen, page and text.
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .then(if (isLocked) Modifier.clearAndSetSemantics { } else Modifier)
+                        ) {
                             val navController = rememberNavController()
 
                             NavHost(
@@ -165,20 +144,80 @@ class MainActivity : FragmentActivity() {
                                         diaryId = diaryId,
                                         lockMode = lockMode,
                                         themeMode = themeMode,
-                                        onExportStarted = { isLockTemporarilyDisabled = true },
-                                        onExportFinished = { isLockTemporarilyDisabled = false },
+                                        onExportStarted = { AppLockState.isLockTemporarilyDisabled = true },
+                                        onExportFinished = { AppLockState.isLockTemporarilyDisabled = false },
                                         onBack = { navController.popBackStack() }
                                     )
                                 }
                             }
                         }
-                        else -> Box(Modifier.fillMaxSize())
-                    }
 
+                        // Drawn on top of the app; hides it and blocks all touches
+                        if (isLocked) {
+                            LockedScreen(onUnlock = ::requestUnlock)
+                        }
+                    }
                 }
             }
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        requestUnlock()
+    }
 
+    override fun onDestroy() {
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(appLifecycleObserver)
+        super.onDestroy()
+    }
+
+    private fun requestUnlock() {
+        if (!lockModeLoaded || lockMode != LockMode.BIOMETRIC) return
+        if (AppLockState.isUnlocked || isAuthInProgress) return
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
+
+        isAuthInProgress = true
+        BiometricAuthHelper(
+            activity = this,
+            onSuccess = {
+                AppLockState.isUnlocked = true
+                isAuthInProgress = false
+            },
+            onError = {
+                isAuthInProgress = false
+            }
+        ).authenticate()
+    }
+}
+
+@Composable
+private fun LockedScreen(onUnlock: () -> Unit) {
+    val activity = LocalContext.current as? Activity
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    // Stop typing into the hidden diary page underneath
+    LaunchedEffect(Unit) {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
+
+    // Back while locked leaves the app instead of navigating the hidden screens
+    BackHandler { activity?.moveTaskToBack(true) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            // Swallow every touch so nothing reaches the app underneath
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) awaitPointerEvent()
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Button(onClick = onUnlock) { Text("Unlock") }
+    }
 }

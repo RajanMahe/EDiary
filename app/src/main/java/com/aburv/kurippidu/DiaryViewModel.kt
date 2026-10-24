@@ -17,12 +17,12 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.time.format.DateTimeFormatterBuilder
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.room.withTransaction
 
 class DiaryViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val dao = DiaryDatabase
-        .getDatabase(application)
-        .diaryDao()
+    private val db = DiaryDatabase.getDatabase(application)
+    private val dao = db.diaryDao()
 
     /* ---------------- ACTIVE DIARY ---------------- */
 
@@ -221,6 +221,21 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
                 saveCurrent()
             }
         }
+    }
+
+    // Outlives the ViewModel so a final save still completes after Back
+    private val saveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    override fun onCleared() {
+        if (saveState == SaveState.DIRTY && isReady) {
+            val entry = DiaryEntity(
+                diaryOwnerId = activeDiaryId,
+                date = currentDate.toString(),
+                content = diaryText.text
+            )
+            saveScope.launch { dao.insert(entry) }
+        }
+        super.onCleared()
     }
 
     /* ---------------- SEARCH ---------------- */
@@ -481,26 +496,36 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     enum class RestoreMode { OVERWRITE, MERGE }
 
     suspend fun restoreFromJson(json: String, mode: RestoreMode = RestoreMode.MERGE) {
-        try {
+        // 1. Parse and validate EVERYTHING first; nothing is written yet
+        val parsed = try {
             val items = org.json.JSONArray(json)
+            List(items.length()) { i ->
+                val obj = items.getJSONObject(i)
+                val date = obj.getString("date")
+                LocalDate.parse(date) // throws on an invalid date
+                DiaryEntity(
+                    diaryOwnerId = activeDiaryId,
+                    date = date,
+                    content = obj.getString("content")
+                )
+            }
+        } catch (e: Exception) {
+            _backupEvents.emit(BackupEvent.Error("Invalid backup file"))
+            return
+        }
+
+        // 2. Write all-or-nothing
+        db.withTransaction {
             if (mode == RestoreMode.OVERWRITE) {
                 dao.clearDiary(activeDiaryId)
             }
-            for (i in 0 until items.length()) {
-                val obj = items.getJSONObject(i)
-                dao.insert(
-                    DiaryEntity(
-                        diaryOwnerId = activeDiaryId,
-                        date = obj.getString("date"),
-                        content = obj.getString("content")
-                    )
-                )
-            }
-            loadAllEntries()
-            _backupEvents.emit(BackupEvent.Success("Restore complete (${items.length()} entries)"))
-        } catch (e: Exception) {
-            _backupEvents.emit(BackupEvent.Error("Invalid backup file"))
+            parsed.forEach { dao.insert(it) }
         }
+
+        loadAllEntries()
+        loadEntryDates()
+        loadDiaryForDate(currentDate)
+        _backupEvents.emit(BackupEvent.Success("Restore complete (${parsed.size} entries)"))
     }
 
     /* ---------------- REINITIALIZE ---------------- */

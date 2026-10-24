@@ -65,6 +65,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,6 +87,17 @@ fun DiaryScreen(
 
     val diaryViewModel: DiaryViewModel = viewModel()
 
+    // Save pending edits as soon as the app goes to the background
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                diaryViewModel.saveCurrentDiary()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
 
 // This must fire first — gates all DB access behind the correct diary ID
