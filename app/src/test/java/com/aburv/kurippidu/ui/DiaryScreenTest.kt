@@ -17,6 +17,7 @@ import com.aburv.kurippidu.DiaryScreen
 import com.aburv.kurippidu.LockMode
 import com.aburv.kurippidu.ThemeMode
 import com.aburv.kurippidu.data.DiaryOwnerEntity
+import com.aburv.kurippidu.testutil.TEST_TIMEOUT_MS
 import com.aburv.kurippidu.testutil.MainDispatcherRule
 import com.aburv.kurippidu.testutil.TestRepository
 import com.aburv.kurippidu.testutil.eventually
@@ -84,10 +85,10 @@ class DiaryScreenTest {
     fun tearDown() = data.close()
 
     private fun waitFor(matcher: androidx.compose.ui.test.SemanticsMatcher) =
-        compose.waitUntil(5_000) { compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(TEST_TIMEOUT_MS) { compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() }
 
     private fun waitForGone(matcher: androidx.compose.ui.test.SemanticsMatcher) =
-        compose.waitUntil(5_000) { compose.onAllNodes(matcher).fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(TEST_TIMEOUT_MS) { compose.onAllNodes(matcher).fetchSemanticsNodes().isEmpty() }
 
     private fun dayLabel(date: LocalDate) = date.format(DateTimeFormatter.ofPattern("d MMM"))
 

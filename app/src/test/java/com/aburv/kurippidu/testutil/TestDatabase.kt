@@ -10,6 +10,13 @@ import com.aburv.kurippidu.data.DiaryRepository
 import com.aburv.kurippidu.data.DiaryWithCount
 import kotlinx.coroutines.flow.first
 
+/**
+ * How long tests wait for something to appear. Generous because CI machines
+ * are much slower than a laptop, and the first test in each class also starts
+ * Robolectric and Compose. Passing tests return as soon as the condition holds.
+ */
+const val TEST_TIMEOUT_MS = 20_000L
+
 /** Fresh in-memory database using Room's normal background threads. */
 fun createTestDatabase(
     context: Context = ApplicationProvider.getApplicationContext()
@@ -45,7 +52,7 @@ suspend fun DiaryDao.observeDiariesWithCountsOnce(): List<DiaryWithCount> =
  * Retries [assertion] until it passes or [timeoutMs] runs out. Room and the
  * ViewModels update on background threads, so results arrive a moment later.
  */
-fun eventually(timeoutMs: Long = 5_000, assertion: () -> Unit) {
+fun eventually(timeoutMs: Long = TEST_TIMEOUT_MS, assertion: () -> Unit) {
     val deadline = System.currentTimeMillis() + timeoutMs
     while (true) {
         try {

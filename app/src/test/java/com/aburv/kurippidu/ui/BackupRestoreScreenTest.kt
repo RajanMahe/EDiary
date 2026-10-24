@@ -17,6 +17,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.aburv.kurippidu.BackupPreferences
 import com.aburv.kurippidu.BackupRestoreScreen
 import com.aburv.kurippidu.DiaryViewModel
+import com.aburv.kurippidu.testutil.TEST_TIMEOUT_MS
 import com.aburv.kurippidu.testutil.MainDispatcherRule
 import com.aburv.kurippidu.testutil.TestRepository
 import com.aburv.kurippidu.testutil.eventually
@@ -87,11 +88,11 @@ class BackupRestoreScreenTest {
     fun tearDown() = data.close()
 
     private fun waitFor(matcher: SemanticsMatcher) =
-        compose.waitUntil(5_000) { compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(TEST_TIMEOUT_MS) { compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() }
 
     private fun nextStartedIntent(): Intent {
         var intent: Intent? = null
-        compose.waitUntil(5_000) {
+        compose.waitUntil(TEST_TIMEOUT_MS) {
             intent = shadowOf(compose.activity).nextStartedActivityForResult?.intent
             intent != null
         }

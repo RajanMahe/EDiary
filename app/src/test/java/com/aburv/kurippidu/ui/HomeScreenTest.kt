@@ -3,6 +3,7 @@ package com.aburv.kurippidu.ui
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import com.aburv.kurippidu.testutil.TEST_TIMEOUT_MS
 import com.aburv.kurippidu.testutil.tap
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
@@ -55,10 +56,10 @@ class HomeScreenTest {
     fun tearDown() = data.close()
 
     private fun waitForText(text: String, substring: Boolean = false) =
-        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasText(text, substring = substring)).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(TEST_TIMEOUT_MS) { compose.onAllNodes(androidx.compose.ui.test.hasText(text, substring = substring)).fetchSemanticsNodes().isNotEmpty() }
 
     private fun waitForNoText(text: String) =
-        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasText(text)).fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(TEST_TIMEOUT_MS) { compose.onAllNodes(androidx.compose.ui.test.hasText(text)).fetchSemanticsNodes().isEmpty() }
 
     @Test
     fun `empty state invites you to create a diary`() {

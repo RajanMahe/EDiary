@@ -13,6 +13,7 @@ import com.aburv.kurippidu.LockMode
 import com.aburv.kurippidu.MainActivity
 import com.aburv.kurippidu.ThemeMode
 import com.aburv.kurippidu.data.DiaryOwnerEntity
+import com.aburv.kurippidu.testutil.TEST_TIMEOUT_MS
 import com.aburv.kurippidu.testutil.TestRepository
 import com.aburv.kurippidu.testutil.tap
 import kotlinx.coroutines.runBlocking
@@ -70,7 +71,7 @@ class MainActivityTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
     }
 
-    private fun waitForText(text: String) = compose.waitUntil(5_000) {
+    private fun waitForText(text: String) = compose.waitUntil(TEST_TIMEOUT_MS) {
         compose.onAllNodes(hasText(text)).fetchSemanticsNodes().isNotEmpty()
     }
 
@@ -120,7 +121,7 @@ class MainActivityTest {
         // Open the diary
         waitForText("Daily")
         compose.onNodeWithText("Daily").tap()
-        compose.waitUntil(5_000) {
+        compose.waitUntil(TEST_TIMEOUT_MS) {
             compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Add Todo")).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -130,7 +131,7 @@ class MainActivityTest {
         compose.runOnUiThread { setUnlocked(true) }
 
         // Still inside the diary, not back on the home screen
-        compose.waitUntil(5_000) {
+        compose.waitUntil(TEST_TIMEOUT_MS) {
             compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Add Todo")).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("My Diaries").assertDoesNotExist()

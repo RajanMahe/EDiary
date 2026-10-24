@@ -5,6 +5,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import com.aburv.kurippidu.testutil.TEST_TIMEOUT_MS
 import com.aburv.kurippidu.testutil.tap
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
@@ -55,7 +56,7 @@ class SheetsTest {
     @After
     fun tearDown() = data.close()
 
-    private fun waitForText(text: String, substring: Boolean = false) = compose.waitUntil(5_000) {
+    private fun waitForText(text: String, substring: Boolean = false) = compose.waitUntil(TEST_TIMEOUT_MS) {
         compose.onAllNodes(hasText(text, substring = substring)).fetchSemanticsNodes().isNotEmpty()
     }
 
