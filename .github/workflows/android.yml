@@ -27,6 +27,28 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
+      - name: List failing tests
+        # Shows each failing test as an error note on the run page,
+        # so failures are visible without downloading the report.
+        if: failure()
+        shell: python3 {0}
+        run: |
+          import glob, os, xml.etree.ElementTree as ET
+          lines = []
+          for path in sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml")):
+              for case in ET.parse(path).getroot().iter("testcase"):
+                  problem = case.find("failure")
+                  if problem is None:
+                      problem = case.find("error")
+                  if problem is None:
+                      continue
+                  name = f"{case.get('classname', '').split('.')[-1]} > {case.get('name')}"
+                  message = (problem.get("message") or problem.text or "").strip()[:400]
+                  lines.append(f"- **{name}**: {message}")
+                  print(f"::error title={name}::{message.replace(chr(10), '%0A')}")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("## Failing tests\n\n" + ("\n".join(lines) or "None found (see the log)") + "\n")
+
       - name: Upload test report
         if: failure()
         uses: actions/upload-artifact@v4
