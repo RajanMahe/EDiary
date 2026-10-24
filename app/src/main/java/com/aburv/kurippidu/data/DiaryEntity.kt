@@ -32,5 +32,8 @@ data class DiaryEntity(
     val content: String,
 
     // When the text was last changed (millis); null for entries from before v8
-    val updatedAt: Long? = null
+    val updatedAt: Long? = null,
+
+    // Mood key (see Mood), or null if not set
+    val mood: String? = null
 )

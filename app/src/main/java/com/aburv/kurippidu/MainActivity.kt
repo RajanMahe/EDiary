@@ -32,6 +32,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.aburv.kurippidu.data.DiaryRepository
+import com.aburv.kurippidu.reminders.Reminders
+import com.aburv.kurippidu.widget.TodayWidgetData
 import com.aburv.kurippidu.ui.theme.DiaryTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -49,6 +51,9 @@ class MainActivity : FragmentActivity() {
     private var themeMode by mutableStateOf(ThemeMode.LIGHT)
     private var fontSize by mutableStateOf(DiaryFontSize.MEDIUM)
 
+    // Diary to open, from a reminder notification or the widget
+    private var openDiaryRequest by mutableStateOf<Int?>(null)
+
     // Locks the app when the whole app goes to the background
     private val appLifecycleObserver = LifecycleEventObserver { _, event ->
         if (event == Lifecycle.Event.ON_STOP &&
@@ -64,6 +69,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
+        openDiaryRequest = diaryIdFrom(intent)
 
         lifecycleScope.launch {
             BackupPreferences.lockMode(this@MainActivity).collect { mode ->
@@ -74,6 +80,8 @@ class MainActivity : FragmentActivity() {
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 }
+                // The widget hides task names while the lock is on
+                TodayWidgetData.refresh(this@MainActivity)
                 if (!lockModeLoaded) {
                     lockModeLoaded = true
                     if (mode == LockMode.OFF) AppLockState.isUnlocked = true
@@ -154,6 +162,15 @@ class MainActivity : FragmentActivity() {
         val keepLockOffWhilePicking = { AppLockState.isLockTemporarilyDisabled = true }
         val restoreLock = { AppLockState.isLockTemporarilyDisabled = false }
 
+        // Opened from a reminder or the widget: go to that diary (after the welcome, if shown)
+        LaunchedEffect(openDiaryRequest) {
+            val id = openDiaryRequest ?: return@LaunchedEffect
+            if (showWelcome != true) {
+                navController.navigate("diary/$id") { launchSingleTop = true }
+            }
+            openDiaryRequest = null
+        }
+
         NavHost(
             navController = navController,
             startDestination = if (showWelcome == true) "welcome" else "home"
@@ -217,6 +234,15 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        diaryIdFrom(intent)?.let { openDiaryRequest = it }
+    }
+
+    private fun diaryIdFrom(intent: android.content.Intent?): Int? =
+        intent?.getIntExtra(Reminders.EXTRA_DIARY_ID, -1)?.takeIf { it >= 0 }
 
     /** Asks for fingerprint / screen lock once, e.g. before turning the app lock on. */
     private fun confirmOwner(onResult: (Boolean) -> Unit) {

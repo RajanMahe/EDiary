@@ -20,7 +20,10 @@ data class TodoEntity(
     val time: Long? = null,
     val isDone: Boolean = false,
     // For DAILY_OVERRIDE rows: id of the RECURRING task this day belongs to
-    val parentId: Int? = null
+    val parentId: Int? = null,
+
+    // For RECURRING tasks: weekdays it repeats on (see Weekdays); null = every day
+    val repeatDays: Int? = null
 )
 
 object TodoType {

@@ -126,6 +126,8 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.sqlcipher.android) { artifact { type = "aar" } }
     implementation(libs.androidx.sqlite)
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

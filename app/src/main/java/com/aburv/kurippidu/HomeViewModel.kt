@@ -20,6 +20,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     var isLoading by mutableStateOf(true)
         private set
 
+    /** Days in a row with writing, per diary id. */
+    var streaks by mutableStateOf<Map<Int, Int>>(emptyMap())
+        private set
+
     init {
         // Room re-emits on every change, so the list and counts stay current
         // after creating a diary or writing entries inside one.
@@ -29,6 +33,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 entryCounts = rows.associate { it.diary.diaryId to it.entryCount }
                 isLoading = false
             }
+        }
+        viewModelScope.launch {
+            repository.observeWritingStreaks().collect { streaks = it }
         }
     }
 

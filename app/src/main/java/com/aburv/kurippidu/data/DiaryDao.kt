@@ -3,6 +3,10 @@ package com.aburv.kurippidu.data
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
+data class DateMood(val date: String, val mood: String?)
+
+data class DiaryDate(val diaryId: Int, val date: String)
+
 data class DiaryWithCount(
     @Embedded val diary: DiaryOwnerEntity,
     val entryCount: Int
@@ -27,6 +31,9 @@ interface DiaryDao {
 
     @Query("SELECT * FROM diaries ORDER BY createdAt")
     suspend fun getAllDiaries(): List<DiaryOwnerEntity>
+
+    @Query("SELECT * FROM diaries WHERE diaryId = :id")
+    suspend fun getDiaryById(id: Int): DiaryOwnerEntity?
 
     @Query("SELECT * FROM diaries WHERE title = :title ORDER BY diaryId LIMIT 1")
     suspend fun getDiaryByTitle(title: String): DiaryOwnerEntity?
@@ -74,6 +81,30 @@ interface DiaryDao {
     @Query("SELECT date FROM entries WHERE diaryOwnerId = :diaryId")
     fun observeEntryDates(diaryId: Int): Flow<List<String>>
 
+    @Query("SELECT date, mood FROM entries WHERE diaryOwnerId = :diaryId AND mood IS NOT NULL")
+    fun observeMoods(diaryId: Int): Flow<List<DateMood>>
+
+    /** Days with actual writing, across all diaries (for streaks). */
+    @Query("SELECT diaryOwnerId AS diaryId, date FROM entries WHERE trim(content) != ''")
+    fun observeWrittenDates(): Flow<List<DiaryDate>>
+
+    @Query("SELECT date FROM entries WHERE diaryOwnerId = :diaryId AND trim(content) != '' AND date >= :from AND date <= :to")
+    suspend fun getWrittenDatesBetween(diaryId: Int, from: String, to: String): List<String>
+
+    /** Earlier years' entries written on the same month and day (MM-dd). */
+    @Query("""
+        SELECT * FROM entries
+        WHERE diaryOwnerId = :diaryId
+        AND substr(date, 6) = :monthDay
+        AND date < :before
+        AND trim(content) != ''
+        ORDER BY date DESC
+    """)
+    suspend fun getOnThisDay(diaryId: Int, monthDay: String, before: String): List<DiaryEntity>
+
+    @Query("SELECT * FROM entries WHERE diaryOwnerId = :diaryId AND date >= :from AND date <= :to ORDER BY date")
+    suspend fun getEntriesBetween(diaryId: Int, from: String, to: String): List<DiaryEntity>
+
     /* ---------------- TODOS ---------------- */
 
     @Insert
@@ -94,7 +125,7 @@ interface DiaryDao {
         WHERE diaryId = :diaryId
         AND type = 'RECURRING'
         AND startDate <= :date
-        AND endDate >= :date
+        AND (endDate IS NULL OR endDate >= :date)
     """)
     fun observeRecurringTodosForDate(diaryId: Int, date: String): Flow<List<TodoEntity>>
 
@@ -116,4 +147,7 @@ interface DiaryDao {
 
     @Query("SELECT * FROM todo WHERE diaryId = :diaryId ORDER BY id")
     suspend fun getAllTodos(diaryId: Int): List<TodoEntity>
+
+    @Query("SELECT * FROM todo WHERE diaryId = :diaryId AND date >= :from AND date <= :to")
+    suspend fun getTodosBetween(diaryId: Int, from: String, to: String): List<TodoEntity>
 }

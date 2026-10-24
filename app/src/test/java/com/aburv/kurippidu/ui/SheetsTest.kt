@@ -121,7 +121,7 @@ class SheetsTest {
         }
 
         waitForText("Gym")
-        compose.onNodeWithText("5 Jan 2026 → 7 Jan 2026").assertExists()
+        compose.onNodeWithText("5 Jan 2026 → 7 Jan 2026 · Every day").assertExists()
 
         // Edit: keep dates, press Save
         compose.onNodeWithContentDescription("Edit dates").tap()

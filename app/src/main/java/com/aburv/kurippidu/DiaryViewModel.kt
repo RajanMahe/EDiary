@@ -7,6 +7,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aburv.kurippidu.data.*
+import com.aburv.kurippidu.widget.TodayWidgetData
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.time.LocalDate
@@ -66,6 +67,20 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     var entryDates by mutableStateOf<Set<LocalDate>>(emptySet())
         private set
 
+    /** Mood for each day that has one. */
+    var moods by mutableStateOf<Map<LocalDate, Mood>>(emptyMap())
+        private set
+
+    val currentMood: Mood? get() = moods[currentDate]
+
+    /** Entries from earlier years on the open day's date ("On this day"). */
+    var memories by mutableStateOf<List<DiaryEntity>>(emptyList())
+        private set
+
+    /** Per recurring task id: scheduled days in a row it was ticked. */
+    var taskStreaks by mutableStateOf<Map<Int, Int>>(emptyMap())
+        private set
+
     init {
         viewModelScope.launch {
             // Only ensure at least one diary exists in DB.
@@ -80,6 +95,11 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
             activeDiaryFlow.filterNotNull()
                 .flatMapLatest { repository.observeRecurringTodos(it) }
                 .collect { recurringTodos = it }
+        }
+        viewModelScope.launch {
+            activeDiaryFlow.filterNotNull()
+                .flatMapLatest { repository.observeMoods(it) }
+                .collect { moods = it }
         }
         viewModelScope.launch {
             // flatMapLatest drops the previous day's query, so fast date
@@ -97,6 +117,16 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         isReady = true
         activeDiaryFlow.value = id
         loadDiaryForDate(currentDate)
+        viewModelScope.launch {
+            // The home-screen widget follows the diary opened last
+            BackupPreferences.setLastDiary(getApplication(), id)
+            TodayWidgetData.refresh(getApplication())
+        }
+    }
+
+    /** Tasks changed: redraw the home-screen widget. */
+    private fun refreshWidget() {
+        viewModelScope.launch { TodayWidgetData.refresh(getApplication()) }
     }
 
     /* ---------------- To-Do ---------------- */
@@ -109,29 +139,47 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addTodo(text: String, date: LocalDate) {
-        viewModelScope.launch { repository.addDailyTodo(activeDiaryId, text, date) }
+        viewModelScope.launch { repository.addDailyTodo(activeDiaryId, text, date); refreshWidget() }
     }
 
-    fun addRecurringTodo(title: String, startDate: LocalDate, endDate: LocalDate) {
+    fun addRecurringTodo(title: String, startDate: LocalDate, endDate: LocalDate?, repeatDays: Int? = null) {
         viewModelScope.launch {
-            repository.addRecurringTodo(activeDiaryId, title, startDate, endDate)
+            repository.addRecurringTodo(activeDiaryId, title, startDate, endDate, repeatDays)
+            refreshWidget()
         }
     }
 
+    /** Taps the same mood again to clear it. */
+    fun setMood(mood: Mood) {
+        val date = currentDate
+        val newMood = if (moods[date] == mood) null else mood
+        viewModelScope.launch { repository.setMood(activeDiaryId, date, newMood) }
+    }
+
+    suspend fun weeklySummary(today: LocalDate = LocalDate.now()) = repository.weeklySummary(activeDiaryId, today)
+
+    fun loadTaskStreaks(today: LocalDate = LocalDate.now()) {
+        viewModelScope.launch { taskStreaks = repository.taskStreaks(activeDiaryId, today) }
+    }
+
     fun toggleTodo(todo: TodoEntity, date: LocalDate = currentDate) {
-        viewModelScope.launch { repository.toggleTodo(todo, date) }
+        viewModelScope.launch { repository.toggleTodo(todo, date); refreshWidget() }
     }
 
     fun deleteTodo(todo: TodoEntity) {
-        viewModelScope.launch { repository.deleteTodo(todo) }
+        viewModelScope.launch { repository.deleteTodo(todo); refreshWidget() }
     }
 
     fun deleteRecurringTodo(todo: TodoEntity) {
-        viewModelScope.launch { repository.deleteRecurringTodo(todo) }
+        viewModelScope.launch { repository.deleteRecurringTodo(todo); refreshWidget() }
     }
 
-    fun updateRecurringTodoDates(todo: TodoEntity, newStart: LocalDate, newEnd: LocalDate) {
+    fun updateRecurringTodoDates(todo: TodoEntity, newStart: LocalDate, newEnd: LocalDate?) {
         viewModelScope.launch { repository.updateRecurringTodoDates(todo, newStart, newEnd) }
+    }
+
+    fun updateRecurringTodo(todo: TodoEntity, start: LocalDate, end: LocalDate?, repeatDays: Int?) {
+        viewModelScope.launch { repository.updateRecurringTodo(todo, start, end, repeatDays); refreshWidget() }
     }
 
     /* ---------------- LOAD ---------------- */
@@ -155,6 +203,8 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
                 diaryText = TextFieldValue(entry?.content ?: "")
                 lastEdited = entry?.updatedAt
             }
+            val earlier = repository.onThisDay(diaryId, date)
+            if (currentDate == date) memories = earlier
         }
     }
 

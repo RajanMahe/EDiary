@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Kurippidu</string>
+    <string name="widget_description">Today\'s tasks and a quick Write button</string>
 </resources>

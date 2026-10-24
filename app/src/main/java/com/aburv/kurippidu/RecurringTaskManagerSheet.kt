@@ -5,6 +5,8 @@ package com.aburv.kurippidu
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -16,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aburv.kurippidu.data.TodoEntity
+import com.aburv.kurippidu.data.Weekdays
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -24,11 +27,11 @@ fun RecurringTaskManagerSheet(
     viewModel: DiaryViewModel,
     onDismiss: () -> Unit
 ) {
-    // viewModel.recurringTodos follows the database, so no manual reload is needed
-    val fmt = DateTimeFormatter.ofPattern("d MMM yyyy")
+    // viewModel.recurringTodos follows the database; streaks are worked out on open
+    LaunchedEffect(viewModel.recurringTodos) { viewModel.loadTaskStreaks() }
 
     var todoToDelete by remember { mutableStateOf<TodoEntity?>(null) }
-    var todoToEdit  by remember { mutableStateOf<TodoEntity?>(null) }
+    var todoToEdit by remember { mutableStateOf<TodoEntity?>(null) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -50,10 +53,7 @@ fun RecurringTaskManagerSheet(
                         .padding(vertical = 48.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        "No recurring tasks yet",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text("No recurring tasks yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn {
@@ -65,44 +65,31 @@ fun RecurringTaskManagerSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = todo.title,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 15.sp
-                                )
+                                Text(text = todo.title, fontWeight = FontWeight.Medium, fontSize = 15.sp)
                                 Spacer(Modifier.height(2.dp))
-                                val startFmt = runCatching {
-                                    LocalDate.parse(todo.startDate).format(fmt)
-                                }.getOrDefault(todo.startDate ?: "—")
-                                val endFmt = runCatching {
-                                    LocalDate.parse(todo.endDate).format(fmt)
-                                }.getOrDefault(todo.endDate ?: "—")
                                 Text(
-                                    text = "$startFmt → $endFmt",
+                                    text = scheduleText(todo),
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                val streak = viewModel.taskStreaks[todo.id] ?: 0
+                                if (streak > 0) {
+                                    Text(
+                                        text = "🔥 $streak in a row",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
-
-                            // ✅ Edit button
                             IconButton(onClick = { todoToEdit = todo }) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Edit dates",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                                Icon(Icons.Default.Edit, contentDescription = "Edit dates", tint = MaterialTheme.colorScheme.primary)
                             }
-
-                            // Delete button
                             IconButton(onClick = { todoToDelete = todo }) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Delete",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                             }
                         }
-                        Divider()
+                        HorizontalDivider()
                     }
                 }
             }
@@ -110,7 +97,6 @@ fun RecurringTaskManagerSheet(
         }
     }
 
-    // ── Delete confirm ──
     todoToDelete?.let { todo ->
         AlertDialog(
             onDismissRequest = { todoToDelete = null },
@@ -120,50 +106,46 @@ fun RecurringTaskManagerSheet(
                 TextButton(onClick = {
                     viewModel.deleteRecurringTodo(todo)
                     todoToDelete = null
-                    // ✅ FIX 1: list refreshes via deleteRecurringTodo -> loadRecurringTodos
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = {
-                TextButton(onClick = { todoToDelete = null }) { Text("Cancel") }
-            }
+            dismissButton = { TextButton(onClick = { todoToDelete = null }) { Text("Cancel") } }
         )
     }
 
-    // ── Edit date range ──
     todoToEdit?.let { todo ->
-        EditRecurringDateDialog(
+        EditRecurringDialog(
             todo = todo,
             onDismiss = { todoToEdit = null },
-            onConfirm = { newStart, newEnd ->
-                viewModel.updateRecurringTodoDates(todo, newStart, newEnd)
+            onConfirm = { schedule ->
+                viewModel.updateRecurringTodo(todo, schedule.start, schedule.end, schedule.repeatDays)
                 todoToEdit = null
             }
         )
     }
 }
 
-// ── Separate composable for edit dialog to keep state isolated ──
+private val dateFormat = DateTimeFormatter.ofPattern("d MMM yyyy")
+
+/** "5 Jan 2026 → 7 Jan 2026 · Every day", or "→ no end" for open-ended tasks. */
+internal fun scheduleText(todo: TodoEntity): String {
+    val start = runCatching { LocalDate.parse(todo.startDate).format(dateFormat) }.getOrDefault(todo.startDate ?: "—")
+    val end = todo.endDate?.let { runCatching { LocalDate.parse(it).format(dateFormat) }.getOrDefault(it) } ?: "no end"
+    return "$start → $end · ${Weekdays.describe(todo.repeatDays)}"
+}
+
 @Composable
-private fun EditRecurringDateDialog(
+private fun EditRecurringDialog(
     todo: TodoEntity,
     onDismiss: () -> Unit,
-    onConfirm: (LocalDate, LocalDate) -> Unit
+    onConfirm: (RecurringSchedule) -> Unit
 ) {
-    val fmt = DateTimeFormatter.ofPattern("d MMM yyyy")
-
-    var showStartPicker by remember { mutableStateOf(false) }
-    var showEndPicker by remember { mutableStateOf(false) }
-
-    var startDate by remember {
+    var schedule by remember {
         mutableStateOf(
-            runCatching { LocalDate.parse(todo.startDate) }.getOrDefault(LocalDate.now())
-        )
-    }
-    var endDate by remember {
-        mutableStateOf(
-            runCatching { LocalDate.parse(todo.endDate) }.getOrDefault(LocalDate.now().plusDays(30))
+            RecurringSchedule(
+                start = runCatching { LocalDate.parse(todo.startDate) }.getOrDefault(LocalDate.now()),
+                end = todo.endDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+                days = Weekdays.daysOf(todo.repeatDays)
+            )
         )
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -172,59 +154,24 @@ private fun EditRecurringDateDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit date range") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = todo.title,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                OutlinedButton(
-                    onClick = { showStartPicker = true },  // use state var
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("From: ${startDate.format(fmt)}")
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                Text(todo.title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                RecurringScheduleFields(schedule) {
+                    schedule = it
+                    errorMessage = null
                 }
-
-                OutlinedButton(
-                    onClick = { showEndPicker = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("To: ${endDate.format(fmt)}")
-                }
-
-                errorMessage?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                }
+                errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                when {
-                    endDate.isBefore(startDate) || endDate == startDate ->
-                        errorMessage = "End date must be after start date"
-                    else -> onConfirm(startDate, endDate)
-                }
+                val problem = schedule.problem()
+                if (problem != null) errorMessage = problem else onConfirm(schedule)
             }) { Text("Save") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
-
-    if (showStartPicker) {
-        AppDatePickerDialog(
-            initialDate = startDate,
-            onDismiss = { showStartPicker = false },
-            onDateSelected = { startDate = it; showStartPicker = false }
-        )
-    }
-
-    if (showEndPicker) {
-        AppDatePickerDialog(
-            initialDate = endDate,
-            onDismiss = { showEndPicker = false },
-            onDateSelected = { endDate = it; showEndPicker = false }
-        )
-    }
 }

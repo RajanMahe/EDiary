@@ -2,6 +2,8 @@
 
 package com.aburv.kurippidu
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -174,6 +176,18 @@ private fun DiaryContent(
     var showTemplates by remember { mutableStateOf(false) }
     var showRecurringDialog by remember { mutableStateOf(false) }
     var showRecurringManager by remember { mutableStateOf(false) }
+    var showReminder by remember { mutableStateOf(false) }
+    var showWeekly by remember { mutableStateOf(false) }
+    var hiddenMemoryDates by rememberSaveable { mutableStateOf(setOf<String>()) }
+
+    val reminderTime by BackupPreferences.reminderTime(context, diaryId).collectAsState(initial = null)
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) scope.launch {
+            snackbarHostState.showSnackbar("Notifications are off for Kurippidu, so reminders can't be shown.")
+        }
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.backupEvents.collect { event ->
@@ -199,7 +213,9 @@ private fun DiaryContent(
                 onEdit = { viewModel.enableEditMode() },
                 onMenu = { showMenu = it },
                 onSettings = { showMenu = false; onOpenSettings() },
-                onBackup = { showMenu = false; showBackupScreen = true }
+                onBackup = { showMenu = false; showBackupScreen = true },
+                onReminder = { showMenu = false; showReminder = true },
+                onWeekly = { showMenu = false; showWeekly = true }
             )
         }
     ) { padding ->
@@ -226,17 +242,36 @@ private fun DiaryContent(
             ) { page ->
                 val date = dateForPage(page)
                 PaperPage(pagerState = pagerState, page = page) {
-                    when {
-                        date != currentDate -> NeighbourPage(date, viewModel)
-                        showEditor -> EditorPage(
-                            viewModel = viewModel,
-                            date = date,
-                            onAddTodo = { showAddTodo = true },
-                            onAddRecurring = { showRecurringDialog = true },
-                            onTemplates = { showTemplates = true },
-                            onManageRecurring = { showRecurringManager = true }
-                        )
-                        else -> PreviewPage(viewModel)
+                    if (date != currentDate) {
+                        NeighbourPage(date, viewModel)
+                    } else {
+                        Column(Modifier.fillMaxSize()) {
+                            // "On this day": earlier years' entry for this date
+                            viewModel.memories.firstOrNull()
+                                ?.takeIf { it.date !in hiddenMemoryDates }
+                                ?.let { memory ->
+                                    MemoryCard(
+                                        memory = memory,
+                                        today = currentDate,
+                                        onOpen = { goTo(LocalDate.parse(memory.date)) },
+                                        onDismiss = { hiddenMemoryDates = hiddenMemoryDates + memory.date }
+                                    )
+                                }
+                            Box(Modifier.weight(1f)) {
+                                if (showEditor) {
+                                    EditorPage(
+                                        viewModel = viewModel,
+                                        date = date,
+                                        onAddTodo = { showAddTodo = true },
+                                        onAddRecurring = { showRecurringDialog = true },
+                                        onTemplates = { showTemplates = true },
+                                        onManageRecurring = { showRecurringManager = true }
+                                    )
+                                } else {
+                                    PreviewPage(viewModel)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -294,11 +329,39 @@ private fun DiaryContent(
     if (showRecurringDialog) {
         RecurringTaskDialog(
             onDismiss = { showRecurringDialog = false },
-            onConfirm = { title, start, end ->
-                viewModel.addRecurringTodo(title, start, end)
+            onConfirm = { title, start, end, repeatDays ->
+                viewModel.addRecurringTodo(title, start, end, repeatDays)
                 showRecurringDialog = false
             }
         )
+    }
+
+    if (showReminder) {
+        ReminderDialog(
+            current = reminderTime,
+            onSave = { time ->
+                showReminder = false
+                scope.launch {
+                    com.aburv.kurippidu.reminders.Reminders.set(context, diaryId, time)
+                    snackbarHostState.showSnackbar(
+                        if (time == null) "Reminder off" else "Reminder set: ${formatReminder(time)}"
+                    )
+                }
+                if (time != null && !com.aburv.kurippidu.reminders.Reminders.canNotify(context) &&
+                    android.os.Build.VERSION.SDK_INT >= 33
+                ) {
+                    notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+            },
+            onDismiss = { showReminder = false }
+        )
+    }
+
+    if (showWeekly) {
+        val summary by produceState<com.aburv.kurippidu.data.WeeklySummary?>(null) {
+            value = viewModel.weeklySummary()
+        }
+        WeeklySummarySheet(summary = summary, onDismiss = { showWeekly = false })
     }
 
     if (showRecurringManager) {
@@ -310,6 +373,7 @@ private fun DiaryContent(
             CalendarMonthView(
                 currentMonth = YearMonth.from(currentDate),
                 entryDates = viewModel.entryDates,
+                dotColors = viewModel.moods.mapValues { (_, mood) -> Color(mood.color) },
                 onDateClick = { date ->
                     showCalendar = false
                     goTo(date)
@@ -356,7 +420,9 @@ private fun DiaryTopBar(
     onEdit: () -> Unit,
     onMenu: (Boolean) -> Unit,
     onSettings: () -> Unit,
-    onBackup: () -> Unit
+    onBackup: () -> Unit,
+    onReminder: () -> Unit,
+    onWeekly: () -> Unit
 ) {
     val barText = MaterialTheme.colorScheme.onPrimaryContainer
     TopAppBar(
@@ -409,8 +475,10 @@ private fun DiaryTopBar(
                     Icon(Icons.Default.MoreVert, contentDescription = "More")
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { onMenu(false) }) {
-                    DropdownMenuItem(text = { Text("Settings") }, onClick = onSettings)
+                    DropdownMenuItem(text = { Text("This week") }, onClick = onWeekly)
+                    DropdownMenuItem(text = { Text("Daily reminder") }, onClick = onReminder)
                     DropdownMenuItem(text = { Text("Backup & Restore") }, onClick = onBackup)
+                    DropdownMenuItem(text = { Text("Settings") }, onClick = onSettings)
                 }
             }
         }
@@ -493,7 +561,8 @@ private fun NeighbourPage(date: LocalDate, viewModel: DiaryViewModel) {
 @Composable
 private fun PreviewPage(viewModel: DiaryViewModel) {
     val todos = viewModel.todos ?: emptyList()
-    if (todos.isEmpty() && viewModel.diaryText.text.isBlank()) {
+    val mood = viewModel.currentMood
+    if (todos.isEmpty() && viewModel.diaryText.text.isBlank() && mood == null) {
         EmptyDayPlaceholder(modifier = Modifier.fillMaxSize())
         return
     }
@@ -504,6 +573,10 @@ private fun PreviewPage(viewModel: DiaryViewModel) {
             .diaryLines()
             .padding(PAGE_PADDING)
     ) {
+        mood?.let {
+            Text("${it.emoji}  Feeling ${it.label.lowercase()}", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(8.dp))
+        }
         // Read-only tasks
         todos.forEach { todo -> TaskRow(todo = todo, onToggle = null, onDelete = null) }
         if (todos.isNotEmpty()) Spacer(Modifier.height(8.dp))
@@ -570,6 +643,11 @@ private fun EditorPage(
                 }
             }
         }
+        MoodRow(
+            selected = viewModel.currentMood,
+            onSelect = viewModel::setMood,
+            modifier = Modifier.padding(vertical = 4.dp)
+        )
         HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
 
         BasicTextField(

@@ -107,6 +107,16 @@ class HomeScreenTest {
     }
 
     @Test
+    fun `diary card shows the writing streak`() {
+        runBlocking {
+            val id = data.dao.insertDiary(com.aburv.kurippidu.data.DiaryOwnerEntity(title = "Streaky")).toInt()
+            val today = LocalDate.now()
+            (0L..2L).forEach { data.repository.saveEntry(id, today.minusDays(it), "day $it") }
+        }
+        waitForText("🔥 3 days in a row")
+    }
+
+    @Test
     fun `gear opens settings`() {
         compose.onNodeWithContentDescription("Settings").tap()
         assertEquals(1, settingsOpened)

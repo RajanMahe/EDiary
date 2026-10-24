@@ -27,6 +27,10 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
     fun observeDiariesWithCounts(): Flow<List<DiaryWithCount>> =
         dao.observeDiariesWithCounts()
 
+    suspend fun getDiary(diaryId: Int): DiaryOwnerEntity? = dao.getDiaryById(diaryId)
+
+    suspend fun firstDiary(): DiaryOwnerEntity? = dao.getAllDiaries().firstOrNull()
+
     suspend fun ensureDefaultDiary() {
         if (dao.getDiaryCount() == 0) {
             dao.insertDiary(DiaryOwnerEntity(title = "My Diary"))
@@ -105,7 +109,7 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
         combine(
             dao.observeTodosOnDate(diaryId, date.toString()),
             dao.observeRecurringTodosForDate(diaryId, date.toString())
-        ) { onDate, recurring -> mergeTodosForDay(onDate, recurring) }
+        ) { onDate, recurring -> mergeTodosForDay(onDate, recurring, date) }
 
     fun observeRecurringTodos(diaryId: Int): Flow<List<TodoEntity>> =
         dao.observeAllRecurringTodos(diaryId)
@@ -120,7 +124,14 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
         )
     }
 
-    suspend fun addRecurringTodo(diaryId: Int, title: String, start: LocalDate, end: LocalDate) {
+    /** @param end null = no end date; @param repeatDays weekday mask (see Weekdays), null = every day */
+    suspend fun addRecurringTodo(
+        diaryId: Int,
+        title: String,
+        start: LocalDate,
+        end: LocalDate?,
+        repeatDays: Int? = null
+    ) {
         dao.insertTodo(
             TodoEntity(
                 diaryId = diaryId,
@@ -128,7 +139,8 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
                 date = start.toString(), // anchor date
                 type = TodoType.RECURRING,
                 startDate = start.toString(),
-                endDate = end.toString()
+                endDate = end?.toString(),
+                repeatDays = repeatDays
             )
         )
     }
@@ -169,8 +181,62 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
         dao.deleteTodo(todo)
     }
 
-    suspend fun updateRecurringTodoDates(todo: TodoEntity, start: LocalDate, end: LocalDate) {
-        dao.updateTodo(todo.copy(startDate = start.toString(), endDate = end.toString()))
+    suspend fun updateRecurringTodo(todo: TodoEntity, start: LocalDate, end: LocalDate?, repeatDays: Int?) {
+        dao.updateTodo(todo.copy(startDate = start.toString(), endDate = end?.toString(), repeatDays = repeatDays))
+    }
+
+    suspend fun updateRecurringTodoDates(todo: TodoEntity, start: LocalDate, end: LocalDate?) =
+        updateRecurringTodo(todo, start, end, todo.repeatDays)
+
+    /** Per recurring task: scheduled days in a row it was ticked. */
+    suspend fun taskStreaks(diaryId: Int, today: LocalDate): Map<Int, Int> {
+        val all = dao.getAllTodos(diaryId)
+        val doneByParent = all.filter { it.type == TodoType.DAILY_OVERRIDE && it.isDone && it.parentId != null }
+            .groupBy({ it.parentId!! }, { LocalDate.parse(it.date) })
+        return all.filter { it.type == TodoType.RECURRING }
+            .associate { task -> task.id to taskStreak(task, doneByParent[task.id].orEmpty().toSet(), today) }
+    }
+
+    /* ---------------- MOOD, STREAKS, MEMORIES ---------------- */
+
+    /** Sets (or clears, with null) the day's mood, creating the entry if needed. */
+    suspend fun setMood(diaryId: Int, date: LocalDate, mood: Mood?) {
+        val existing = dao.getEntryByDate(diaryId, date.toString())
+        if (existing != null) {
+            dao.updateEntry(existing.copy(mood = mood?.key))
+        } else if (mood != null) {
+            dao.insert(DiaryEntity(diaryOwnerId = diaryId, date = date.toString(), content = "", mood = mood.key))
+        }
+    }
+
+    fun observeMoods(diaryId: Int): Flow<Map<LocalDate, Mood>> =
+        dao.observeMoods(diaryId).map { rows ->
+            rows.mapNotNull { row ->
+                val date = runCatching { LocalDate.parse(row.date) }.getOrNull()
+                val mood = Mood.fromKey(row.mood)
+                if (date != null && mood != null) date to mood else null
+            }.toMap()
+        }
+
+    /** Writing streak for every diary, updated live. */
+    fun observeWritingStreaks(today: () -> LocalDate = { LocalDate.now() }): Flow<Map<Int, Int>> =
+        dao.observeWrittenDates().map { rows ->
+            rows.groupBy({ it.diaryId }, { runCatching { LocalDate.parse(it.date) }.getOrNull() })
+                .mapValues { (_, dates) -> writingStreak(dates.filterNotNull().toSet(), today()) }
+        }
+
+    /** What was written on this day in earlier years, newest first. */
+    suspend fun onThisDay(diaryId: Int, date: LocalDate): List<DiaryEntity> =
+        dao.getOnThisDay(diaryId, date.toString().substring(5), date.toString())
+
+    suspend fun weeklySummary(diaryId: Int, today: LocalDate): WeeklySummary {
+        val from = today.minusDays(6)
+        return weeklySummary(
+            entries = dao.getEntriesBetween(diaryId, from.toString(), today.toString()),
+            todos = dao.getTodosBetween(diaryId, from.toString(), today.toString()),
+            recurring = dao.getAllTodos(diaryId).filter { it.type == TodoType.RECURRING },
+            today = today
+        )
     }
 
     /* ---------------- FULL BACKUP ---------------- */
@@ -186,7 +252,7 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
                         title = diary.title,
                         createdAt = diary.createdAt,
                         entries = dao.getAllEntries(diary.diaryId).map { entry ->
-                            BackupEntry(date = entry.date, content = entry.content, updatedAt = entry.updatedAt)
+                            BackupEntry(date = entry.date, content = entry.content, mood = entry.mood, updatedAt = entry.updatedAt)
                         },
                         todos = dao.getAllTodos(diary.diaryId).map { todo ->
                             BackupTodo(
@@ -198,7 +264,8 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
                                 endDate = todo.endDate,
                                 time = todo.time,
                                 isDone = todo.isDone,
-                                parentKey = todo.parentId
+                                parentKey = todo.parentId,
+                                repeatDays = todo.repeatDays
                             )
                         }
                     )
@@ -229,10 +296,9 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
             diaries++
 
             diary.entries.forEach { entry ->
-                saveEntry(
-                    diaryId, LocalDate.parse(entry.date), entry.content,
-                    updatedAt = entry.updatedAt ?: System.currentTimeMillis()
-                )
+                val date = LocalDate.parse(entry.date)
+                saveEntry(diaryId, date, entry.content, updatedAt = entry.updatedAt ?: System.currentTimeMillis())
+                Mood.fromKey(entry.mood)?.let { setMood(diaryId, date, it) }
                 entries++
             }
 
@@ -255,7 +321,7 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
                         TodoEntity(
                             diaryId = diaryId, title = todo.title, date = todo.date, type = todo.type,
                             startDate = todo.startDate, endDate = todo.endDate, time = todo.time,
-                            isDone = todo.isDone
+                            isDone = todo.isDone, repeatDays = todo.repeatDays
                         )
                     ).toInt().also { newId ->
                         existing += TodoEntity(

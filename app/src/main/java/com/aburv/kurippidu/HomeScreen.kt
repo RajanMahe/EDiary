@@ -124,6 +124,7 @@ fun HomeScreen(
                     DiaryCard(
                         diary = diary,
                         entryCount = viewModel.entryCounts[diary.diaryId] ?: 0,
+                        streak = viewModel.streaks[diary.diaryId] ?: 0,
                         onClick = { onDiarySelected(diary.diaryId) },
                         onRename = {
                             diaryToRename = diary
@@ -228,6 +229,7 @@ fun HomeScreen(
 private fun DiaryCard(
     diary: DiaryOwnerEntity,
     entryCount: Int,
+    streak: Int,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
@@ -273,6 +275,15 @@ private fun DiaryCard(
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (streak > 0) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = if (streak == 1) "🔥 1 day in a row" else "🔥 $streak days in a row",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
             Box {
                 IconButton(onClick = { showMenu = true }) {

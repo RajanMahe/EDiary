@@ -102,6 +102,32 @@ private fun lastSearchKey(diaryId: Int) = stringPreferencesKey("last_search_$dia
         }
     }
 
+    /* ---------------- REMINDERS ---------------- */
+
+    private fun reminderKey(diaryId: Int) = stringPreferencesKey("reminder_$diaryId")
+
+    /** Daily reminder time for a diary, or null if off. */
+    fun reminderTime(context: Context, diaryId: Int): Flow<java.time.LocalTime?> =
+        context.dataStore.data.map { prefs ->
+            prefs[reminderKey(diaryId)]?.let { runCatching { java.time.LocalTime.parse(it) }.getOrNull() }
+        }
+
+    suspend fun setReminderTime(context: Context, diaryId: Int, time: java.time.LocalTime?) {
+        context.dataStore.edit { prefs ->
+            if (time == null) prefs.remove(reminderKey(diaryId)) else prefs[reminderKey(diaryId)] = time.toString()
+        }
+    }
+
+    /* ---------------- LAST DIARY (widget) ---------------- */
+
+    private val LAST_DIARY = intPreferencesKey("last_diary")
+
+    fun lastDiary(context: Context): Flow<Int?> = context.dataStore.data.map { it[LAST_DIARY] }
+
+    suspend fun setLastDiary(context: Context, diaryId: Int) {
+        context.dataStore.edit { it[LAST_DIARY] = diaryId }
+    }
+
     /* ---------------- FONT SIZE ---------------- */
 
     fun fontSize(context: Context): Flow<DiaryFontSize> =

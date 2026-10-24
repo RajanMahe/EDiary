@@ -22,7 +22,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.time.DayOfWeek
 import java.time.LocalDate
+import com.aburv.kurippidu.data.Weekdays
+import com.aburv.kurippidu.testutil.tap
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
@@ -110,10 +115,10 @@ class CalendarAndDialogsTest {
 
     @Test
     fun `recurring task needs a name`() {
-        var confirmed: Triple<String, LocalDate, LocalDate>? = null
+        var confirmed: List<Any?>? = null
         compose.setContent {
             DiaryTheme(darkTheme = false) {
-                RecurringTaskDialog(onDismiss = {}, onConfirm = { t, s, e -> confirmed = Triple(t, s, e) })
+                RecurringTaskDialog(onDismiss = {}, onConfirm = { t, s, e, d -> confirmed = listOf(t, s, e, d) })
             }
         }
 
@@ -125,10 +130,10 @@ class CalendarAndDialogsTest {
     @Test
     fun `recurring task defaults to the next 30 days`() {
         val today = LocalDate.now()
-        var confirmed: Triple<String, LocalDate, LocalDate>? = null
+        var confirmed: List<Any?>? = null
         compose.setContent {
             DiaryTheme(darkTheme = false) {
-                RecurringTaskDialog(onDismiss = {}, onConfirm = { t, s, e -> confirmed = Triple(t, s, e) })
+                RecurringTaskDialog(onDismiss = {}, onConfirm = { t, s, e, d -> confirmed = listOf(t, s, e, d) })
             }
         }
 
@@ -138,7 +143,43 @@ class CalendarAndDialogsTest {
         compose.onNodeWithText("Task name").performTextInput("  Meditate  ")
         compose.onNodeWithText("Create").performClick()
 
-        assertEquals(Triple("Meditate", today, today.plusDays(30)), confirmed)
+        assertEquals(listOf("Meditate", today, today.plusDays(30), null), confirmed) // null = every day
+    }
+
+    @Test
+    fun `recurring task can have no end and repeat on chosen weekdays`() {
+        var confirmed: List<Any?>? = null
+        compose.setContent {
+            DiaryTheme(darkTheme = false) {
+                RecurringTaskDialog(onDismiss = {}, onConfirm = { t, s, e, d -> confirmed = listOf(t, s, e, d) })
+            }
+        }
+        compose.onNodeWithText("Task name").performTextInput("Gym")
+        compose.onNodeWithText("No end date").tap()
+        compose.onNodeWithText("To:", substring = true).assertDoesNotExist()
+
+        // Keep Mon, Wed, Fri only
+        listOf("Tue", "Thu", "Sat", "Sun").forEach { compose.onNode(hasText(it) and hasClickAction()).tap() }
+        compose.onNodeWithText("Mon, Wed, Fri").assertExists()
+        compose.onNodeWithText("Create").performClick()
+
+        val mask = Weekdays.maskOf(setOf(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY))
+        assertEquals(listOf("Gym", LocalDate.now(), null, mask), confirmed)
+    }
+
+    @Test
+    fun `recurring task needs at least one day`() {
+        var confirmed: List<Any?>? = null
+        compose.setContent {
+            DiaryTheme(darkTheme = false) {
+                RecurringTaskDialog(onDismiss = {}, onConfirm = { t, s, e, d -> confirmed = listOf(t, s, e, d) })
+            }
+        }
+        compose.onNodeWithText("Task name").performTextInput("Gym")
+        listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").forEach { compose.onNode(hasText(it) and hasClickAction()).tap() }
+        compose.onNodeWithText("Create").performClick()
+        compose.onNodeWithText("Choose at least one day").assertExists()
+        assertNull(confirmed)
     }
 
     @Test
@@ -146,7 +187,7 @@ class CalendarAndDialogsTest {
         var dismissed = false
         compose.setContent {
             DiaryTheme(darkTheme = false) {
-                RecurringTaskDialog(onDismiss = { dismissed = true }, onConfirm = { _, _, _ -> })
+                RecurringTaskDialog(onDismiss = { dismissed = true }, onConfirm = { _, _, _, _ -> })
             }
         }
         compose.onNodeWithText("Cancel").performClick()
@@ -157,7 +198,7 @@ class CalendarAndDialogsTest {
     fun `date fields open a date picker`() {
         compose.setContent {
             DiaryTheme(darkTheme = false) {
-                RecurringTaskDialog(onDismiss = {}, onConfirm = { _, _, _ -> })
+                RecurringTaskDialog(onDismiss = {}, onConfirm = { _, _, _, _ -> })
             }
         }
         compose.onNodeWithText("From: ${LocalDate.now().format(fmt)}").performClick()

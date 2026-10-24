@@ -227,4 +227,60 @@ class DiaryScreenTest {
         waitFor(hasText(dayLabel(today.minusDays(2))))
         waitFor(hasText("Two days ago"))
     }
+
+    /* ---------------- PHASE 3 ---------------- */
+
+    @Test
+    fun `tapping a mood saves it, tapping again clears it`() {
+        compose.onNodeWithContentDescription("Mood Good").tap()
+        eventually {
+            assertEquals("good", runBlocking { data.repository.getEntry(diaryId, today) }?.mood)
+        }
+        compose.onNodeWithContentDescription("Mood Good").tap()
+        eventually {
+            assertEquals(null, runBlocking { data.repository.getEntry(diaryId, today) }?.mood)
+        }
+    }
+
+    @Test
+    fun `on this day shows last year's entry and opens it`() {
+        // Set before the screen loads the day
+        runBlocking { data.repository.saveEntry(diaryId, today.minusYears(1), "A year ago today") }
+        compose.onNodeWithText("<").tap()
+        compose.onNodeWithContentDescription("Go to Today").tap()
+
+        waitFor(hasText("1 year ago you wrote", substring = true))
+        compose.onNodeWithText("A year ago today").tap()
+        waitFor(hasText(dayLabel(today.minusYears(1))))
+    }
+
+    @Test
+    fun `this week summary opens from the menu`() {
+        runBlocking { data.repository.saveEntry(diaryId, today, "one two three") }
+        compose.onNodeWithContentDescription("More").tap()
+        compose.onNodeWithText("This week").tap()
+        waitFor(hasText("Days written"))
+        waitFor(hasText("1 / 7"))
+        waitFor(hasText("3"))
+    }
+
+    @Test
+    fun `daily reminder can be switched on from the menu`() {
+        androidx.work.testing.WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        org.robolectric.Shadows.shadowOf(context as android.app.Application)
+            .grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        compose.onNodeWithContentDescription("More").tap()
+        compose.onNodeWithText("Daily reminder").tap()
+        compose.onNode(androidx.compose.ui.test.isToggleable()).tap()
+        compose.onNodeWithText("At 9:00 PM", substring = true).assertExists()
+        compose.onNodeWithText("Save").tap()
+
+        eventually {
+            assertEquals(
+                java.time.LocalTime.of(21, 0),
+                runBlocking { BackupPreferences.reminderTime(context, diaryId).first() }
+            )
+        }
+        waitFor(hasText("Reminder set", substring = true))
+    }
 }

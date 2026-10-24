@@ -8,30 +8,53 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import java.time.Instant
+import java.time.DayOfWeek
 import java.time.LocalDate
+import com.aburv.kurippidu.data.Weekdays
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+
+/** What a recurring task repeats on: dates, optional end, and weekdays. */
+data class RecurringSchedule(
+    val start: LocalDate,
+    val end: LocalDate?,          // null = no end date
+    val days: Set<DayOfWeek>      // all 7 = every day
+) {
+    val repeatDays: Int? get() = Weekdays.maskOf(days)
+
+    /** Error message, or null when valid. */
+    fun problem(): String? = when {
+        days.isEmpty() -> "Choose at least one day"
+        end != null && !end.isAfter(start) -> "End date must be after start date"
+        else -> null
+    }
+}
 
 @Composable
 fun RecurringTaskDialog(
     onDismiss: () -> Unit,
-    onConfirm: (title: String, startDate: LocalDate, endDate: LocalDate) -> Unit
+    onConfirm: (title: String, startDate: LocalDate, endDate: LocalDate?, repeatDays: Int?) -> Unit
 ) {
     val today = LocalDate.now()
     var title by remember { mutableStateOf("") }
-    var startDate by remember { mutableStateOf(today) }
-    var endDate by remember { mutableStateOf(today.plusDays(30)) }
+    var schedule by remember {
+        mutableStateOf(RecurringSchedule(today, today.plusDays(30), DayOfWeek.entries.toSet()))
+    }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showStartPicker by remember { mutableStateOf(false) }
-    var showEndPicker by remember { mutableStateOf(false) }
-
-    val fmt = DateTimeFormatter.ofPattern("d MMM yyyy")
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New Recurring Task") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = {
@@ -43,66 +66,96 @@ fun RecurringTaskDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                // ✅ FIX 5: OutlinedButton instead of disabled TextField — cleaner tap target
-                OutlinedButton(
-                    onClick = { showStartPicker = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onBackground
-                    )
-                ) {
-                    Text("From: ${startDate.format(fmt)}")
+                RecurringScheduleFields(schedule) {
+                    schedule = it
+                    errorMessage = null
                 }
-
-                OutlinedButton(
-                    onClick = { showEndPicker = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onBackground
-                    )
-                ) {
-                    Text("To: ${endDate.format(fmt)}")
-                }
-
-                errorMessage?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                }
+                errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                when {
-                    title.isBlank() -> errorMessage = "Task name is required"
-                    endDate.isBefore(startDate) || endDate == startDate ->
-                        errorMessage = "End date must be after start date"
-                    else -> onConfirm(title.trim(), startDate, endDate)
-                }
+                val problem = if (title.isBlank()) "Task name is required" else schedule.problem()
+                if (problem != null) errorMessage = problem
+                else onConfirm(title.trim(), schedule.start, schedule.end, schedule.repeatDays)
             }) { Text("Create") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
 
-    // ✅ Material3 DatePicker — uses your app theme automatically
+/** Start and end dates (or "No end date") and weekday chips; shared by create and edit. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun RecurringScheduleFields(schedule: RecurringSchedule, onChange: (RecurringSchedule) -> Unit) {
+    val fmt = DateTimeFormatter.ofPattern("d MMM yyyy")
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
+    val buttonColors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onBackground)
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { showStartPicker = true }, modifier = Modifier.fillMaxWidth(), colors = buttonColors) {
+            Text("From: ${schedule.start.format(fmt)}")
+        }
+        if (schedule.end != null) {
+            OutlinedButton(onClick = { showEndPicker = true }, modifier = Modifier.fillMaxWidth(), colors = buttonColors) {
+                Text("To: ${schedule.end.format(fmt)}")
+            }
+        }
+        // The whole row (text too) toggles, not just the small box
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(
+                    value = schedule.end == null,
+                    role = Role.Checkbox,
+                    onValueChange = { noEnd ->
+                        onChange(schedule.copy(end = if (noEnd) null else schedule.start.plusDays(30)))
+                    }
+                )
+        ) {
+            Checkbox(checked = schedule.end == null, onCheckedChange = null)
+            Spacer(Modifier.width(8.dp))
+            Text("No end date")
+        }
+
+        Text("Repeat on", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            DayOfWeek.entries.forEach { day ->
+                val on = day in schedule.days
+                FilterChip(
+                    selected = on,
+                    onClick = { onChange(schedule.copy(days = if (on) schedule.days - day else schedule.days + day)) },
+                    label = { Text(day.name.take(1) + day.name.substring(1, 3).lowercase()) }
+                )
+            }
+        }
+        Text(
+            Weekdays.describe(Weekdays.maskOf(schedule.days)).takeIf { schedule.days.isNotEmpty() } ?: "No days chosen",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
     if (showStartPicker) {
         AppDatePickerDialog(
-            initialDate = startDate,
+            initialDate = schedule.start,
             onDismiss = { showStartPicker = false },
             onDateSelected = {
-                startDate = it
+                onChange(schedule.copy(start = it))
                 showStartPicker = false
             }
         )
     }
-
-    if (showEndPicker) {
+    if (showEndPicker && schedule.end != null) {
         AppDatePickerDialog(
-            initialDate = endDate,
+            initialDate = schedule.end,
             onDismiss = { showEndPicker = false },
             onDateSelected = {
-                endDate = it
+                onChange(schedule.copy(end = it))
                 showEndPicker = false
             }
         )
