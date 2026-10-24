@@ -66,6 +66,8 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
 
     suspend fun countEntries(diaryId: Int): Int = dao.getCount(diaryId)
 
+    suspend fun hasAnyEntries(): Boolean = dao.hasAnyEntries()
+
     fun observeEntryDates(diaryId: Int): Flow<Set<LocalDate>> =
         dao.observeEntryDates(diaryId).map { dates ->
             dates.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()

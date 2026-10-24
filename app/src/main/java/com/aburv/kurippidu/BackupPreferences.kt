@@ -18,6 +18,8 @@ private fun lastOpenedDateKey(diaryId: Int) =
 
     private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
 
+    private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+
     private val AUTO_BACKUP_FREQUENCY = stringPreferencesKey("auto_backup_frequency")
     private val AUTO_BACKUP_FOLDER = stringPreferencesKey("auto_backup_folder")
     private val LAST_AUTO_BACKUP_TIME = longPreferencesKey("last_auto_backup_time")
@@ -86,6 +88,15 @@ private fun lastOpenedDateKey(diaryId: Int) =
                 ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.LIGHT
         }
+
+    /* ---------------- WELCOME ---------------- */
+
+    fun onboardingDone(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[ONBOARDING_DONE] ?: false }
+
+    suspend fun setOnboardingDone(context: Context, done: Boolean = true) {
+        context.dataStore.edit { it[ONBOARDING_DONE] = done }
+    }
 
     /* ---------------- AUTOMATIC BACKUP ---------------- */
 

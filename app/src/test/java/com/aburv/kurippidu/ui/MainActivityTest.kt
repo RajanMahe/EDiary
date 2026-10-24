@@ -16,7 +16,9 @@ import com.aburv.kurippidu.data.DiaryOwnerEntity
 import com.aburv.kurippidu.testutil.TEST_TIMEOUT_MS
 import com.aburv.kurippidu.testutil.TestRepository
 import com.aburv.kurippidu.testutil.tap
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import com.aburv.kurippidu.testutil.eventually
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -48,7 +50,10 @@ class MainActivityTest {
         AppLockState.authenticate = { _, onSuccess, onError -> promptRequests += onSuccess to onError }
         setUnlocked(false) // as after a cold start
         AppLockState.isLockTemporarilyDisabled = false
-        runBlocking { BackupPreferences.setThemeMode(context, ThemeMode.LIGHT) }
+        runBlocking {
+            BackupPreferences.setThemeMode(context, ThemeMode.LIGHT)
+            BackupPreferences.setOnboardingDone(context, true) // most tests skip the welcome
+        }
     }
 
     @After
@@ -73,6 +78,71 @@ class MainActivityTest {
 
     private fun waitForText(text: String) = compose.waitUntil(TEST_TIMEOUT_MS) {
         compose.onAllNodes(hasText(text)).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    /* ---------------- WELCOME ---------------- */
+
+    @Test
+    fun `a new user sees the welcome, can skip the lock and lands on home`() {
+        runBlocking { BackupPreferences.setOnboardingDone(context, false) }
+        launch(LockMode.OFF)
+
+        waitForText("Welcome to Kurippidu")
+        compose.onNodeWithText("Stays on your device").assertExists()
+        compose.onNodeWithText("Lock with fingerprint").assertExists()
+        compose.onNodeWithText("Backup anytime").assertExists()
+
+        compose.onNodeWithText("Next").tap()
+        waitForText("Protect your diary?")
+        assertEquals(0, promptRequests.size) // explained first; no prompt yet
+
+        compose.onNodeWithText("Not now").tap()
+        waitForText("My Diaries")
+        assertEquals(true, runBlocking { BackupPreferences.onboardingDone(context).first() })
+        assertEquals(LockMode.OFF, runBlocking { BackupPreferences.lockMode(context).first() })
+    }
+
+    @Test
+    fun `turning the lock on from the welcome asks once and stays unlocked`() {
+        runBlocking { BackupPreferences.setOnboardingDone(context, false) }
+        launch(LockMode.OFF)
+        waitForText("Welcome to Kurippidu")
+        compose.onNodeWithText("Next").tap()
+
+        compose.onNodeWithText("Turn on lock").tap()
+        assertEquals(1, promptRequests.size)
+        compose.runOnUiThread { promptRequests.last().first() } // fingerprint accepted
+
+        waitForText("My Diaries")
+        compose.onNodeWithText("Unlock").assertDoesNotExist()
+        eventually { assertEquals(LockMode.BIOMETRIC, runBlocking { BackupPreferences.lockMode(context).first() }) }
+    }
+
+    @Test
+    fun `a cancelled fingerprint on the welcome explains and stays`() {
+        runBlocking { BackupPreferences.setOnboardingDone(context, false) }
+        launch(LockMode.OFF)
+        waitForText("Welcome to Kurippidu")
+        compose.onNodeWithText("Next").tap()
+        compose.onNodeWithText("Turn on lock").tap()
+        compose.runOnUiThread { promptRequests.last().second() }
+
+        waitForText("Lock not turned on. You can try again or skip.")
+        compose.onNodeWithText("Protect your diary?").assertExists()
+    }
+
+    @Test
+    fun `people updating from an older version skip the welcome`() {
+        runBlocking {
+            BackupPreferences.setOnboardingDone(context, false)
+            val id = data.dao.insertDiary(DiaryOwnerEntity(title = "Old diary")).toInt()
+            data.repository.saveEntry(id, LocalDate.of(2025, 5, 1), "Written last year")
+        }
+        launch(LockMode.OFF)
+
+        waitForText("Old diary")
+        compose.onNodeWithText("Welcome to Kurippidu").assertDoesNotExist()
+        eventually { assertEquals(true, runBlocking { BackupPreferences.onboardingDone(context).first() }) }
     }
 
     @Test

@@ -65,6 +65,9 @@ interface DiaryDao {
     @Query("SELECT COUNT(*) FROM entries WHERE diaryOwnerId = :diaryId")
     suspend fun getCount(diaryId: Int): Int
 
+    @Query("SELECT EXISTS(SELECT 1 FROM entries)")
+    suspend fun hasAnyEntries(): Boolean
+
     @Query("DELETE FROM entries WHERE diaryOwnerId = :diaryId")
     suspend fun clearDiary(diaryId: Int)
 

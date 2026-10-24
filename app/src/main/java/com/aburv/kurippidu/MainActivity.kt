@@ -31,11 +31,18 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.aburv.kurippidu.ui.theme.DiaryTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.aburv.kurippidu.data.DiaryRepository
 
 class MainActivity : FragmentActivity() {
     private var lockMode by mutableStateOf(LockMode.OFF)
     private var lockModeLoaded by mutableStateOf(false)
+
+    // null until known; true only for brand-new users
+    private var showWelcome by mutableStateOf<Boolean?>(null)
     private var isAuthInProgress = false
 
     private var themeMode by mutableStateOf(ThemeMode.LIGHT)
@@ -86,6 +93,18 @@ class MainActivity : FragmentActivity() {
             }
         }
         lifecycleScope.launch {
+            showWelcome = if (BackupPreferences.onboardingDone(this@MainActivity).first()) {
+                false
+            } else {
+                // People updating from an older version already know the app
+                val existingUser = withContext(Dispatchers.IO) {
+                    runCatching { DiaryRepository.get(this@MainActivity).hasAnyEntries() }.getOrDefault(false)
+                }
+                if (existingUser) BackupPreferences.setOnboardingDone(this@MainActivity)
+                !existingUser
+            }
+        }
+        lifecycleScope.launch {
             BackupPreferences.themeMode(this@MainActivity).collect {
                 themeMode = it
             }
@@ -105,7 +124,7 @@ class MainActivity : FragmentActivity() {
                     color = Color.Transparent
                 ) {
                     // Wait until the saved lock setting is known
-                    if (!lockModeLoaded) {
+                    if (!lockModeLoaded || showWelcome == null) {
                         Box(Modifier.fillMaxSize())
                         return@Surface
                     }
@@ -124,8 +143,32 @@ class MainActivity : FragmentActivity() {
 
                             NavHost(
                                 navController = navController,
-                                startDestination = "home"
+                                startDestination = if (showWelcome == true) "welcome" else "home"
                             ) {
+                                composable("welcome") {
+                                    WelcomeScreen(
+                                        onTurnOnLock = { onResult ->
+                                            AppLockState.authenticate(
+                                                this@MainActivity,
+                                                {
+                                                    // Unlocked right now, so turning the lock on doesn't lock the screen
+                                                    AppLockState.isUnlocked = true
+                                                    lifecycleScope.launch {
+                                                        BackupPreferences.setLockMode(this@MainActivity, LockMode.BIOMETRIC)
+                                                    }
+                                                    onResult(true)
+                                                },
+                                                { onResult(false) }
+                                            )
+                                        },
+                                        onFinished = {
+                                            lifecycleScope.launch { BackupPreferences.setOnboardingDone(this@MainActivity) }
+                                            navController.navigate("home") {
+                                                popUpTo("welcome") { inclusive = true }
+                                            }
+                                        }
+                                    )
+                                }
                                 composable("home") {
                                     HomeScreen(
                                         lockMode = lockMode,
