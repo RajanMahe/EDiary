@@ -2,5 +2,6 @@ package com.aburv.kurippidu
 
 enum class ThemeMode {
     LIGHT,
-    DARK
+    DARK,
+    SYSTEM // follow the phone's dark mode setting
 }

@@ -13,12 +13,14 @@ object BackupPreferences {
 
     private val LAST_BACKUP_TIME = longPreferencesKey("last_backup_time")
     private val LOCK_MODE_KEY = stringPreferencesKey("lock_mode")
-private fun lastOpenedDateKey(diaryId: Int) =
+private fun lastSearchKey(diaryId: Int) = stringPreferencesKey("last_search_$diaryId")
+    private fun lastOpenedDateKey(diaryId: Int) =
     stringPreferencesKey("last_opened_date_$diaryId")
 
     private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
 
     private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+    private val FONT_SIZE = stringPreferencesKey("font_size")
 
     private val AUTO_BACKUP_FREQUENCY = stringPreferencesKey("auto_backup_frequency")
     private val AUTO_BACKUP_FOLDER = stringPreferencesKey("auto_backup_folder")
@@ -88,6 +90,28 @@ private fun lastOpenedDateKey(diaryId: Int) =
                 ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.LIGHT
         }
+
+    /* ---------------- SEARCH ---------------- */
+
+    fun lastSearch(context: Context, diaryId: Int): Flow<String> =
+        context.dataStore.data.map { it[lastSearchKey(diaryId)].orEmpty() }
+
+    suspend fun setLastSearch(context: Context, diaryId: Int, query: String) {
+        context.dataStore.edit { prefs ->
+            if (query.isBlank()) prefs.remove(lastSearchKey(diaryId)) else prefs[lastSearchKey(diaryId)] = query
+        }
+    }
+
+    /* ---------------- FONT SIZE ---------------- */
+
+    fun fontSize(context: Context): Flow<DiaryFontSize> =
+        context.dataStore.data.map { prefs ->
+            prefs[FONT_SIZE]?.let { runCatching { DiaryFontSize.valueOf(it) }.getOrNull() } ?: DiaryFontSize.MEDIUM
+        }
+
+    suspend fun setFontSize(context: Context, size: DiaryFontSize) {
+        context.dataStore.edit { it[FONT_SIZE] = size.name }
+    }
 
     /* ---------------- WELCOME ---------------- */
 

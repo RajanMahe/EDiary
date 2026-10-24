@@ -7,6 +7,10 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.onRoot
 import com.aburv.kurippidu.AppDatePickerDialog
 import com.aburv.kurippidu.CalendarMonthView
 import com.aburv.kurippidu.RecurringTaskDialog
@@ -47,7 +51,7 @@ class CalendarAndDialogsTest {
             DiaryTheme(darkTheme = false) {
                 CalendarMonthView(
                     currentMonth = YearMonth.of(2026, 1),
-                    entryDates = listOf(LocalDate.of(2026, 1, 5)),
+                    entryDates = setOf(LocalDate.of(2026, 1, 5)),
                     onDateClick = { picked += it }
                 )
             }
@@ -67,6 +71,37 @@ class CalendarAndDialogsTest {
         compose.onNodeWithContentDescription("Previous Month").performClick()
         compose.onNodeWithContentDescription("Previous Month").performClick()
         compose.onNodeWithText("December 2025").assertExists()
+    }
+
+    @Test
+    fun `long-pressing the month goes to today`() {
+        val picked = mutableListOf<LocalDate>()
+        val today = LocalDate.of(2026, 10, 25)
+        compose.setContent {
+            DiaryTheme(darkTheme = false) {
+                CalendarMonthView(
+                    currentMonth = YearMonth.of(2025, 3),
+                    entryDates = emptySet(),
+                    onDateClick = { picked += it },
+                    today = today
+                )
+            }
+        }
+        compose.onNodeWithText("March 2025").performTouchInput { longClick() }
+        compose.onNodeWithText("October 2026").assertExists()
+        assertEquals(listOf(today), picked)
+    }
+
+    @Test
+    fun `swiping changes the month`() {
+        compose.setContent {
+            DiaryTheme(darkTheme = false) {
+                CalendarMonthView(YearMonth.of(2026, 1), emptySet(), onDateClick = {})
+            }
+        }
+        // Swipe across the whole width, through the middle of the month grid
+        compose.onRoot().performTouchInput { swipeLeft(startX = right - 5f, endX = left + 5f) }
+        compose.onNodeWithText("February 2026").assertExists()
     }
 
     /* ---------------- NEW RECURRING TASK ---------------- */

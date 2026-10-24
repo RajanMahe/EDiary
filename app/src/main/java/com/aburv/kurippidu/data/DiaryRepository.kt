@@ -53,12 +53,19 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
         dao.getEntryByDate(diaryId, date.toString())
 
     /** Updates the day's entry in place (keeping its id and other fields), or creates it. */
-    suspend fun saveEntry(diaryId: Int, date: LocalDate, content: String) {
+    suspend fun saveEntry(
+        diaryId: Int,
+        date: LocalDate,
+        content: String,
+        updatedAt: Long = System.currentTimeMillis()
+    ) {
         val existing = dao.getEntryByDate(diaryId, date.toString())
         if (existing != null) {
-            dao.updateEntry(existing.copy(content = content))
+            if (existing.content != content) dao.updateEntry(existing.copy(content = content, updatedAt = updatedAt))
         } else {
-            dao.insert(DiaryEntity(diaryOwnerId = diaryId, date = date.toString(), content = content))
+            dao.insert(
+                DiaryEntity(diaryOwnerId = diaryId, date = date.toString(), content = content, updatedAt = updatedAt)
+            )
         }
     }
 
@@ -179,7 +186,7 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
                         title = diary.title,
                         createdAt = diary.createdAt,
                         entries = dao.getAllEntries(diary.diaryId).map { entry ->
-                            BackupEntry(date = entry.date, content = entry.content)
+                            BackupEntry(date = entry.date, content = entry.content, updatedAt = entry.updatedAt)
                         },
                         todos = dao.getAllTodos(diary.diaryId).map { todo ->
                             BackupTodo(
@@ -222,7 +229,10 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
             diaries++
 
             diary.entries.forEach { entry ->
-                saveEntry(diaryId, LocalDate.parse(entry.date), entry.content)
+                saveEntry(
+                    diaryId, LocalDate.parse(entry.date), entry.content,
+                    updatedAt = entry.updatedAt ?: System.currentTimeMillis()
+                )
                 entries++
             }
 

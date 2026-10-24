@@ -42,6 +42,10 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     var isEditMode by mutableStateOf(false)
         private set
 
+    /** When the open day's text was last changed (millis), or null if never/unknown. */
+    var lastEdited by mutableStateOf<Long?>(null)
+        private set
+
     fun enableEditMode() {
         isEditMode = true
     }
@@ -149,6 +153,7 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
             val entry = repository.getEntry(diaryId, date)
             if (currentDate == date && editCount == editsAtStart) {
                 diaryText = TextFieldValue(entry?.content ?: "")
+                lastEdited = entry?.updatedAt
             }
         }
     }
@@ -185,7 +190,9 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         val text = diaryText.text
 
         saveState = SaveState.SAVING
-        repository.saveEntry(diaryId, date, text)
+        val now = System.currentTimeMillis()
+        repository.saveEntry(diaryId, date, text, updatedAt = now)
+        if (currentDate == date) lastEdited = now
 
         // If the user typed during the save, stay DIRTY so it saves again
         if (saveState == SaveState.SAVING) saveState = SaveState.SAVED
@@ -226,13 +233,29 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         searchQuery = query
 
         searchJob?.cancel()
+        if (query.isBlank()) {
+            searchResults = emptyList()
+            // Separate job: closing the sheet right after clearing must not undo the "forget"
+            viewModelScope.launch { BackupPreferences.setLastSearch(getApplication(), activeDiaryId, "") }
+            return
+        }
         searchJob = viewModelScope.launch {
-            if (query.isBlank()) {
-                searchResults = emptyList()
-                return@launch
-            }
             delay(250) // wait for typing to pause
+            BackupPreferences.setLastSearch(getApplication(), activeDiaryId, query)
             searchResults = repository.search(activeDiaryId, query)
+        }
+    }
+
+    /** Opens search with the last query for this diary, results shown straight away. */
+    fun restoreLastSearch() {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            val diaryId = activeDiaryFlow.filterNotNull().first()
+            val saved = BackupPreferences.lastSearch(getApplication(), diaryId).first()
+            if (saved.isNotBlank() && searchQuery.isBlank()) {
+                searchQuery = saved
+                searchResults = repository.search(diaryId, saved)
+            }
         }
     }
 
@@ -359,22 +382,12 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         scheduleAutoSave()
     }
 
-    /* ---------------- PAGE PRELOAD ---------------- */
+    /* ---------------- PAGES ---------------- */
 
-    data class DiaryPageState(
-        val date: LocalDate,
-        val text: String
-    )
-
-    suspend fun preloadPages(center: LocalDate): Map<Int, DiaryPageState> {
+    /** Saved text for any day, shown on neighbouring pages while swiping. */
+    suspend fun textFor(date: LocalDate): String {
         val diaryId = activeDiaryFlow.filterNotNull().first()
-        val prev = repository.getEntry(diaryId, center.minusDays(1))
-        val next = repository.getEntry(diaryId, center.plusDays(1))
-        return mapOf(
-            -1 to DiaryPageState(date = center.minusDays(1), text = prev?.content.orEmpty()),
-            0 to DiaryPageState(date = center, text = diaryText.text),
-            1 to DiaryPageState(date = center.plusDays(1), text = next?.content.orEmpty())
-        )
+        return repository.getEntry(diaryId, date)?.content.orEmpty()
     }
 
     /* ---------------- REINITIALIZE ---------------- */

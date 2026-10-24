@@ -1,41 +1,42 @@
 package com.aburv.kurippidu
 
 import android.app.Activity
+import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import android.view.WindowManager
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.aburv.kurippidu.data.DiaryRepository
 import com.aburv.kurippidu.ui.theme.DiaryTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.aburv.kurippidu.data.DiaryRepository
 
 class MainActivity : FragmentActivity() {
     private var lockMode by mutableStateOf(LockMode.OFF)
@@ -46,6 +47,7 @@ class MainActivity : FragmentActivity() {
     private var isAuthInProgress = false
 
     private var themeMode by mutableStateOf(ThemeMode.LIGHT)
+    private var fontSize by mutableStateOf(DiaryFontSize.MEDIUM)
 
     // Locks the app when the whole app goes to the background
     private val appLifecycleObserver = LifecycleEventObserver { _, event ->
@@ -62,19 +64,6 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
-
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(
-                androidx.core.view.WindowInsetsCompat.Type.statusBars() or
-                        androidx.core.view.WindowInsetsCompat.Type.navigationBars()
-            )
-            systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
 
         lifecycleScope.launch {
             BackupPreferences.lockMode(this@MainActivity).collect { mode ->
@@ -104,107 +93,134 @@ class MainActivity : FragmentActivity() {
                 !existingUser
             }
         }
-        lifecycleScope.launch {
-            BackupPreferences.themeMode(this@MainActivity).collect {
-                themeMode = it
-            }
-        }
+        lifecycleScope.launch { BackupPreferences.themeMode(this@MainActivity).collect { themeMode = it } }
+        lifecycleScope.launch { BackupPreferences.fontSize(this@MainActivity).collect { fontSize = it } }
 
         setContent {
-            val darkTheme = themeMode == ThemeMode.DARK
+            val darkTheme = when (themeMode) {
+                ThemeMode.DARK -> true
+                ThemeMode.LIGHT -> false
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+
+            // Draw behind the status and navigation bars. Top bars are dark in both
+            // themes, so status icons are always light; the navigation bar follows the theme.
+            LaunchedEffect(darkTheme) {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
+                    navigationBarStyle = if (darkTheme) SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+                    else SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                )
+            }
 
             DiaryTheme(darkTheme = darkTheme) {
-                SideEffect {
-                    WindowInsetsControllerCompat(window, window.decorView).apply {
-                        isAppearanceLightStatusBars = !darkTheme
-                    }
-                }
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Color.Transparent
-                ) {
-                    // Wait until the saved lock setting is known
-                    if (!lockModeLoaded || showWelcome == null) {
-                        Box(Modifier.fillMaxSize())
-                        return@Surface
-                    }
-
-                    val isLocked = lockMode == LockMode.BIOMETRIC && !AppLockState.isUnlocked
-
-                    Box(Modifier.fillMaxSize()) {
-                        // The NavHost stays alive while locked, so after unlocking
-                        // the user is back on the same screen, page and text.
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .then(if (isLocked) Modifier.clearAndSetSemantics { } else Modifier)
-                        ) {
-                            val navController = rememberNavController()
-
-                            NavHost(
-                                navController = navController,
-                                startDestination = if (showWelcome == true) "welcome" else "home"
-                            ) {
-                                composable("welcome") {
-                                    WelcomeScreen(
-                                        onTurnOnLock = { onResult ->
-                                            AppLockState.authenticate(
-                                                this@MainActivity,
-                                                {
-                                                    // Unlocked right now, so turning the lock on doesn't lock the screen
-                                                    AppLockState.isUnlocked = true
-                                                    lifecycleScope.launch {
-                                                        BackupPreferences.setLockMode(this@MainActivity, LockMode.BIOMETRIC)
-                                                    }
-                                                    onResult(true)
-                                                },
-                                                { onResult(false) }
-                                            )
-                                        },
-                                        onFinished = {
-                                            lifecycleScope.launch { BackupPreferences.setOnboardingDone(this@MainActivity) }
-                                            navController.navigate("home") {
-                                                popUpTo("welcome") { inclusive = true }
-                                            }
-                                        }
-                                    )
-                                }
-                                composable("home") {
-                                    HomeScreen(
-                                        lockMode = lockMode,
-                                        themeMode = themeMode,
-                                        onDiarySelected = { diaryId ->
-                                            navController.navigate("diary/$diaryId")
-                                        }
-                                    )
-                                }
-                                composable("diary/{diaryId}") { backStackEntry ->
-                                    val diaryId = backStackEntry.arguments
-                                        ?.getString("diaryId")
-                                        ?.toIntOrNull() ?: return@composable
-
-                                    // viewModel() here is already scoped to this backstack entry automatically
-                                    // Each diary navigation creates an isolated ViewModel instance
-                                    DiaryScreen(
-                                        diaryId = diaryId,
-                                        lockMode = lockMode,
-                                        themeMode = themeMode,
-                                        onExportStarted = { AppLockState.isLockTemporarilyDisabled = true },
-                                        onExportFinished = { AppLockState.isLockTemporarilyDisabled = false },
-                                        onBack = { navController.popBackStack() }
-                                    )
-                                }
-                            }
-                        }
-
-                        // Drawn on top of the app; hides it and blocks all touches
-                        if (isLocked) {
-                            LockedScreen(onUnlock = ::requestUnlock)
-                        }
-                    }
+                CompositionLocalProvider(LocalDiaryTextSize provides fontSize.size) {
+                    AppContent()
                 }
             }
         }
+    }
+
+    @Composable
+    private fun AppContent() {
+        // Wait until the saved lock setting is known
+        if (!lockModeLoaded || showWelcome == null) {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+            return
+        }
+
+        val isLocked = lockMode == LockMode.BIOMETRIC && !AppLockState.isUnlocked
+
+        Box(Modifier.fillMaxSize()) {
+            // The NavHost stays alive while locked, so after unlocking
+            // the user is back on the same screen, page and text.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .then(if (isLocked) Modifier.clearAndSetSemantics { } else Modifier)
+            ) {
+                AppNavHost(rememberNavController())
+            }
+
+            // Drawn on top of the app; hides it and blocks all touches
+            if (isLocked) {
+                LockedScreen(onUnlock = ::requestUnlock)
+            }
+        }
+    }
+
+    @Composable
+    private fun AppNavHost(navController: NavHostController) {
+        val keepLockOffWhilePicking = { AppLockState.isLockTemporarilyDisabled = true }
+        val restoreLock = { AppLockState.isLockTemporarilyDisabled = false }
+
+        NavHost(
+            navController = navController,
+            startDestination = if (showWelcome == true) "welcome" else "home"
+        ) {
+            composable("welcome") {
+                WelcomeScreen(
+                    onTurnOnLock = { onResult ->
+                        confirmOwner { success ->
+                            if (success) {
+                                // Unlocked right now, so turning the lock on doesn't lock the screen
+                                AppLockState.isUnlocked = true
+                                lifecycleScope.launch {
+                                    BackupPreferences.setLockMode(this@MainActivity, LockMode.BIOMETRIC)
+                                }
+                            }
+                            onResult(success)
+                        }
+                    },
+                    onFinished = {
+                        lifecycleScope.launch { BackupPreferences.setOnboardingDone(this@MainActivity) }
+                        navController.navigate("home") { popUpTo("welcome") { inclusive = true } }
+                    }
+                )
+            }
+            composable("home") {
+                HomeScreen(
+                    onDiarySelected = { diaryId -> navController.navigate("diary/$diaryId") },
+                    onOpenSettings = { navController.navigate("settings") }
+                )
+            }
+            composable("diary/{diaryId}") { backStackEntry ->
+                val diaryId = backStackEntry.arguments?.getString("diaryId")?.toIntOrNull() ?: return@composable
+                // viewModel() inside is scoped to this back-stack entry: one per opened diary
+                DiaryScreen(
+                    diaryId = diaryId,
+                    onExportStarted = keepLockOffWhilePicking,
+                    onExportFinished = restoreLock,
+                    onBack = { navController.popBackStack() },
+                    onOpenSettings = { navController.navigate("settings") }
+                )
+            }
+            composable("settings") {
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenBackup = { navController.navigate("backup") },
+                    onEnableLock = { onResult ->
+                        confirmOwner { success ->
+                            if (success) AppLockState.isUnlocked = true
+                            onResult(success)
+                        }
+                    }
+                )
+            }
+            composable("backup") {
+                BackupRestoreScreen(
+                    viewModel = null, // all diaries; per-diary tools live in each diary's menu
+                    onExportStarted = keepLockOffWhilePicking,
+                    onExportFinished = restoreLock,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+    }
+
+    /** Asks for fingerprint / screen lock once, e.g. before turning the app lock on. */
+    private fun confirmOwner(onResult: (Boolean) -> Unit) {
+        AppLockState.authenticate(this, { onResult(true) }, { onResult(false) })
     }
 
     override fun onStart() {

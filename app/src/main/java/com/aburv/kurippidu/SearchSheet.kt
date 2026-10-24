@@ -2,6 +2,7 @@
 
 package com.aburv.kurippidu
 
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Row
@@ -30,6 +31,9 @@ fun SearchSheet(
     onResultClick: (LocalDate) -> Unit,
     viewModel: DiaryViewModel = viewModel()
 ) {
+    // Reopen with the last search for this diary
+    LaunchedEffect(Unit) { viewModel.restoreLastSearch() }
+
     ModalBottomSheet(onDismissRequest = onClose) {
         Column(
             modifier = Modifier
@@ -62,6 +66,14 @@ fun SearchSheet(
                 onValueChange = viewModel::onSearchQueryChanged,
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Search by date or content…") },
+                singleLine = true,
+                trailingIcon = {
+                    if (viewModel.searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                     unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -83,25 +95,28 @@ fun SearchSheet(
             } else {
                 LazyColumn {
                     items(viewModel.searchResults) { diary ->
+                        val highlight = SpanStyle(
+                            background = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                            fontWeight = FontWeight.SemiBold
+                        )
                         ListItem(
                             headlineContent = {
                                 val formatted = runCatching {
                                     LocalDate.parse(diary.date).format(resultDateFormatter)
                                 }.getOrDefault(diary.date)
-                                Text(formatted)
+                                Text(formatted, fontWeight = FontWeight.SemiBold)
                             },
-
                             supportingContent = {
                                 Text(
-                                    diary.content,
-                                    maxLines = 2
+                                    searchSnippet(diary.content, viewModel.searchQuery, highlight),
+                                    maxLines = 3
                                 )
                             },
                             modifier = Modifier.clickable {
                                 onResultClick(LocalDate.parse(diary.date))
                             }
                         )
-                        Divider()
+                        HorizontalDivider()
                     }
                 }
             }

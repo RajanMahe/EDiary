@@ -37,6 +37,7 @@ class HomeScreenTest {
 
     private lateinit var data: TestRepository
     private val opened = mutableListOf<Int>()
+    private var settingsOpened = 0
 
     @Before
     fun setUp() {
@@ -45,8 +46,7 @@ class HomeScreenTest {
             DiaryTheme(darkTheme = false) {
                 HomeScreen(
                     onDiarySelected = { opened += it },
-                    lockMode = LockMode.OFF,
-                    themeMode = ThemeMode.LIGHT
+                    onOpenSettings = { settingsOpened++ }
                 )
             }
         }
@@ -104,6 +104,12 @@ class HomeScreenTest {
         compose.onNodeWithText("Delete").tap()
         waitForText("No diaries yet")
         waitForNoText("Gym")
+    }
+
+    @Test
+    fun `gear opens settings`() {
+        compose.onNodeWithContentDescription("Settings").tap()
+        assertEquals(1, settingsOpened)
     }
 
     @Test

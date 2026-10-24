@@ -1,66 +1,58 @@
 package com.aburv.kurippidu.ui.theme
 
-import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
 
 private val LightColorScheme = lightColorScheme(
     primary = InkBrown,
-    secondary = InkBrown.copy(alpha = 0.85f),
-    background = PaperBeige,
-    surface = PaperBeige,
-
     onPrimary = Color.White,
+    // Top bars
+    primaryContainer = InkBrown,
+    onPrimaryContainer = Color.White,
+    secondary = InkBrown.copy(alpha = 0.85f),
     onSecondary = Color.White,
+    background = PaperBeige,
     onBackground = InkBrown,
-    onSurface = InkBrown
+    surface = PaperBeige,
+    onSurface = InkBrown,
+    surfaceVariant = DeskBeige,
+    onSurfaceVariant = InkBrown.copy(alpha = 0.7f)
 )
 
 private val DarkColorScheme = darkColorScheme(
-    primary = InkBrown,
-    secondary = InkBrown.copy(alpha = 0.8f),
-    background = Color(0xFF1A1A1A),
-    surface = Color(0xFF1A1A1A),
-
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onBackground = Color(0xFFEDE0D4),
-    onSurface = Color(0xFFEDE0D4)
+    // Warm amber accent of its own, instead of reusing the light brown
+    primary = AmberInk,
+    onPrimary = Color(0xFF3B2414),
+    primaryContainer = Color(0xFF2E241D),
+    onPrimaryContainer = NightText,
+    secondary = AmberInk.copy(alpha = 0.85f),
+    onSecondary = Color(0xFF3B2414),
+    background = NightPaper,
+    onBackground = NightText,
+    surface = NightPaper,
+    onSurface = NightText,
+    surfaceVariant = NightDesk,
+    onSurfaceVariant = NightText.copy(alpha = 0.7f)
 )
+
+/** True when the app's own theme (not the phone's) is dark. */
+val LocalDarkTheme = staticCompositionLocalOf { false }
 
 @Composable
 fun DiaryTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // ❗ disable for brand consistency
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view)
-                .isAppearanceLightStatusBars = !darkTheme
-        }
+    // System bar colours are handled by enableEdgeToEdge() in MainActivity
+    CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme,
+            typography = Typography,
+            content = content
+        )
     }
-
-
-
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
 }
-
-

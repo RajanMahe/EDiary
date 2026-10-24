@@ -11,6 +11,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeRight
+import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import com.aburv.kurippidu.BackupPreferences
 import com.aburv.kurippidu.DiaryScreen
@@ -53,7 +56,7 @@ class DiaryScreenTest {
     private lateinit var data: TestRepository
     private var diaryId = 0
     private var backPresses = 0
-    private var screenLockMode by androidx.compose.runtime.mutableStateOf(LockMode.OFF)
+    private var settingsOpened = 0
     private val today = LocalDate.now()
 
     @Before
@@ -73,8 +76,7 @@ class DiaryScreenTest {
                     onExportStarted = {},
                     onExportFinished = {},
                     onBack = { backPresses++ },
-                    lockMode = screenLockMode,
-                    themeMode = ThemeMode.LIGHT
+                    onOpenSettings = { settingsOpened++ }
                 )
             }
         }
@@ -194,24 +196,35 @@ class DiaryScreenTest {
     }
 
     @Test
-    fun `menu switches to dark mode`() {
+    fun `menu opens settings`() {
         compose.onNodeWithContentDescription("More").tap()
-        compose.onNodeWithText("Switch to Dark Mode").tap()
-        eventually {
-            assertEquals(ThemeMode.DARK, runBlocking { BackupPreferences.themeMode(context).first() })
-        }
+        compose.onNodeWithText("Settings").tap()
+        assertEquals(1, settingsOpened)
     }
 
     @Test
-    fun `menu turns the app lock off`() {
-        runBlocking { BackupPreferences.setLockMode(context, LockMode.BIOMETRIC) }
-        screenLockMode = LockMode.BIOMETRIC
-        compose.onNodeWithContentDescription("More").tap()
-        compose.onNodeWithText("Biometric / Face enabled").assertExists()
-        compose.onNodeWithText("App Lock").assertExists()
-        compose.onNode(androidx.compose.ui.test.isToggleable()).tap()
-        eventually {
-            assertEquals(LockMode.OFF, runBlocking { BackupPreferences.lockMode(context).first() })
+    fun `typing shows Typing then Saved, a word count and the edit time`() {
+        compose.onNode(hasSetTextAction()).performTextInput("Three small words")
+        waitFor(hasText("Typing…"))
+        waitFor(hasText("3 words", substring = true))
+
+        mainDispatcher.dispatcher.scheduler.advanceTimeBy(900)
+        waitFor(hasText("Saved"))
+        waitFor(hasText("Last edited", substring = true))
+    }
+
+    @Test
+    fun `swiping a read-only day turns the page`() {
+        runBlocking {
+            data.repository.saveEntry(diaryId, today.minusDays(2), "Two days ago")
         }
+        compose.onNodeWithText("<").tap()
+        waitFor(hasText(dayLabel(today.minusDays(1))))
+
+        // Swipe right = previous day
+        // Swipe across the page area (neighbouring days are drawn too, off-screen)
+        compose.onRoot().performTouchInput { swipeRight(startX = left + 5f, endX = right - 5f) }
+        waitFor(hasText(dayLabel(today.minusDays(2))))
+        waitFor(hasText("Two days ago"))
     }
 }

@@ -20,6 +20,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.junit.After
@@ -452,16 +453,49 @@ class DiaryViewModelTest {
     /* ---------------- PAGES ---------------- */
 
     @Test
-    fun `preloads the previous and next day`() = runBlocking {
+    fun `any day's text is available for neighbouring pages`() = runBlocking {
         save(day.minusDays(1), "Yesterday")
-        save(day.plusDays(1), "Tomorrow")
+        assertEquals("Yesterday", viewModel.textFor(day.minusDays(1)))
+        assertEquals("", viewModel.textFor(day.plusDays(1)))
+    }
+
+    @Test
+    fun `last edited time is loaded and updated on save`() {
+        runBlocking { data.repository.saveEntry(diaryId, day, "Old", updatedAt = 1_000L) }
         viewModel.loadDiaryForDate(day)
+        eventually { assertEquals(1_000L, viewModel.lastEdited) }
 
-        val pages = viewModel.preloadPages(day)
+        viewModel.updateDiaryText(TextFieldValue("Changed"))
+        viewModel.saveCurrentDiary()
+        eventually { assertTrue(viewModel.lastEdited!! > 1_000L) }
+        assertEquals(viewModel.lastEdited, runBlocking { data.repository.getEntry(diaryId, day) }!!.updatedAt)
 
-        assertEquals("Yesterday", pages.getValue(-1).text)
-        assertEquals(day, pages.getValue(0).date)
-        assertEquals("Tomorrow", pages.getValue(1).text)
+        viewModel.loadDiaryForDate(day.plusDays(1))
+        eventually { assertNull(viewModel.lastEdited) }
+    }
+
+    @Test
+    fun `search is remembered per diary`() {
+        save(day, "Leg day at the gym")
+        viewModel.onSearchQueryChanged("gym")
+        advanceTimeBy(300)
+        eventually { assertEquals(1, viewModel.searchResults.size) }
+
+        // Closing search clears the screen, reopening brings it back with results
+        viewModel.clearSearch()
+        viewModel.restoreLastSearch()
+        eventually { assertEquals("gym", viewModel.searchQuery) }
+        eventually { assertEquals(1, viewModel.searchResults.size) }
+
+        // Clearing the box forgets it, even if the sheet is closed straight away
+        viewModel.onSearchQueryChanged("")
+        viewModel.clearSearch()
+        eventually {
+            assertEquals("", runBlocking { BackupPreferences.lastSearch(app, diaryId).first() })
+        }
+        viewModel.restoreLastSearch()
+        Thread.sleep(200)
+        assertEquals("", viewModel.searchQuery)
     }
 
     @Test

@@ -26,8 +26,11 @@ data class DiaryEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0,
 
-    val diaryOwnerId: Int,   // 🔥 NEW
+    val diaryOwnerId: Int,
 
     val date: String,
-    val content: String
+    val content: String,
+
+    // When the text was last changed (millis); null for entries from before v8
+    val updatedAt: Long? = null
 )

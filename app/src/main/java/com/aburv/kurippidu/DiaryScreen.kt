@@ -2,931 +2,662 @@
 
 package com.aburv.kurippidu
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.runtime.*
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.aburv.kurippidu.CalendarMonthView
 import com.aburv.kurippidu.DiaryViewModel.BackupEvent
-import com.aburv.kurippidu.R
 import com.aburv.kurippidu.data.TodoEntity
 import com.aburv.kurippidu.data.TodoType
+import com.aburv.kurippidu.ui.theme.LocalDarkTheme
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.launch
+import java.time.temporal.ChronoUnit
+import java.util.Date
+import java.util.Locale
+import kotlin.math.abs
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Pages are days: page [ANCHOR_PAGE] is the anchor date, one page per day either side. */
+private const val PAGE_COUNT = 200_000
+private const val ANCHOR_PAGE = PAGE_COUNT / 2
+
 @Composable
 fun DiaryScreen(
     diaryId: Int,
     onExportStarted: () -> Unit,
     onExportFinished: () -> Unit,
     onBack: () -> Unit,
-    lockMode: LockMode,
-    themeMode: ThemeMode
-
+    onOpenSettings: () -> Unit = {}
 ) {
     val diaryViewModel: DiaryViewModel = viewModel()
+    val context = LocalContext.current
 
     // Save pending edits as soon as the app goes to the background
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                diaryViewModel.saveCurrentDiary()
-            }
+            if (event == Lifecycle.Event.ON_STOP) diaryViewModel.saveCurrentDiary()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-// This must fire first — gates all DB access behind the correct diary ID
-    LaunchedEffect(diaryId) {
-        diaryViewModel.setActiveDiary(diaryId)
-    }
+    // Must run first: gates all database access behind the right diary
+    LaunchedEffect(diaryId) { diaryViewModel.setActiveDiary(diaryId) }
 
-    /* ---------------- Restore Backup---------------- */
-
-    val editorScrollState = rememberScrollState()
-
-    var pendingImportText by remember { mutableStateOf<String?>(null) }
-    var pendingImportCount by remember { mutableStateOf(0) }
-    var showBackupScreen by remember { mutableStateOf(false) }
-    var isRestoreInProgress by rememberSaveable { mutableStateOf(false) }
-
-    /* ---------------- Back-Up ---------------- */
-
-    var showExportMenu by remember { mutableStateOf(false) }
-
-    /* ---------------- SNACKBAR ---------------- */
-
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-
-    /* ---------------- DATE STATE ---------------- */
-
-    val iconColor = MaterialTheme.colorScheme.onSurface
-
-    var selectedDate by rememberSaveable { mutableStateOf<LocalDate?>(null) }
-
-    var pageStack by remember {
-        mutableStateOf<Map<Int, DiaryViewModel.DiaryPageState>>(emptyMap())
-    }
-
+    // Open on the day the user last looked at
+    var startDate by rememberSaveable { mutableStateOf<LocalDate?>(null) }
     LaunchedEffect(Unit) {
-        BackupPreferences.lastOpenedDate(context, diaryId).collect { saved ->
-            if (selectedDate == null) {
-                val resolvedDate =
-                    saved?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-                        ?: LocalDate.now()
-
-                selectedDate = resolvedDate
+        if (startDate == null) {
+            BackupPreferences.lastOpenedDate(context, diaryId).collect { saved ->
+                if (startDate == null) {
+                    startDate = saved?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now()
+                }
             }
         }
     }
 
-    val currentDate = selectedDate ?: LocalDate.now()
-
-    var showCalendarPicker by remember { mutableStateOf(false) }
-
-    val dateFormatter = remember { DateTimeFormatter.ofPattern("d MMM") }
-    val dateText = if (currentDate == LocalDate.now()) {
-        "Today (${currentDate.format(dateFormatter)})"
-    } else {
-        currentDate.format(dateFormatter)
+    val anchor = startDate
+    if (anchor == null) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+        return
     }
 
-    val isToday = currentDate == LocalDate.now()
-    val showEditor = isToday || diaryViewModel.isEditMode
-
-    val isEmptyEntry = diaryViewModel.diaryText.text.isBlank()
-    val todosEmpty = diaryViewModel.todos?.isEmpty() ?: true
-    val showPlaceholder = !showEditor && isEmptyEntry && todosEmpty
-
-    /*-------------Dairy Template-------------- */
-
-    val templates = listOf(
-        DiaryTemplate("Workout", "🏋️"),
-        DiaryTemplate("Food", "🍔"),
-        DiaryTemplate("Spent", "💸")
+    DiaryContent(
+        diaryId = diaryId,
+        anchorDate = anchor,
+        viewModel = diaryViewModel,
+        onExportStarted = onExportStarted,
+        onExportFinished = onExportFinished,
+        onBack = onBack,
+        onOpenSettings = onOpenSettings
     )
+}
 
-    /* ---------------- DIARY TABS STATE ---------------- */
+@Composable
+private fun DiaryContent(
+    diaryId: Int,
+    anchorDate: LocalDate,
+    viewModel: DiaryViewModel,
+    onExportStarted: () -> Unit,
+    onExportFinished: () -> Unit,
+    onBack: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
-// ✅ LOAD diary WHEN date changes
+    fun dateForPage(page: Int): LocalDate = anchorDate.plusDays((page - ANCHOR_PAGE).toLong())
+    fun pageForDate(date: LocalDate): Int = ANCHOR_PAGE + ChronoUnit.DAYS.between(anchorDate, date).toInt()
 
-    LaunchedEffect(selectedDate) {
-        selectedDate?.let { date ->
+    val pagerState = rememberPagerState(initialPage = ANCHOR_PAGE) { PAGE_COUNT }
+    val currentDate = dateForPage(pagerState.settledPage)
+    val today = LocalDate.now()
+    val isToday = currentDate == today
+    val showEditor = isToday || viewModel.isEditMode
 
-            diaryViewModel.saveCurrentDiary()
-
-            diaryViewModel.loadDiaryForDate(date)
-
-            pageStack = diaryViewModel.preloadPages(date)
-
-            diaryViewModel.updateEditModeForDate(date)
-
-            BackupPreferences.setLastOpenedDate(context, diaryId, date.toString())
-
-            diaryViewModel.loadTodos(date)
+    // A settled page is the open day: save the old one, load the new one
+    LaunchedEffect(currentDate) {
+        viewModel.saveCurrentDiary()
+        viewModel.loadDiaryForDate(currentDate)
+        viewModel.updateEditModeForDate(currentDate)
+        viewModel.loadTodos(currentDate)
+        BackupPreferences.setLastOpenedDate(context, diaryId, currentDate.toString())
+    }
+    // A small tick when a swipe lands on a new day
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.distinctUntilChanged().drop(1).collect {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
     }
 
+    /** Close days slide; far jumps (calendar, search) go straight there. */
+    fun goTo(date: LocalDate) {
+        val target = pageForDate(date)
+        scope.launch {
+            if (abs(target - pagerState.currentPage) <= 3) pagerState.animateScrollToPage(target)
+            else pagerState.scrollToPage(target)
+        }
+    }
+
+    var showMenu by remember { mutableStateOf(false) }
+    var showBackupScreen by remember { mutableStateOf(false) }
+    var showCalendar by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
-    val previewScrollState = rememberScrollState()
-
-    /* ---------------- TOOLBAR STATE ---------------- */
-
-    var showAddTodoDialog by remember { mutableStateOf(false) }
-    var newTodoText by remember { mutableStateOf("") }
-
-    var showTypeDialog by remember { mutableStateOf(false) }
-
-    var showRecurringTaskDialog by remember { mutableStateOf(false) }
-
+    var showAddTodo by remember { mutableStateOf(false) }
+    var showTemplates by remember { mutableStateOf(false) }
+    var showRecurringDialog by remember { mutableStateOf(false) }
     var showRecurringManager by remember { mutableStateOf(false) }
 
-    /* ---------------- ANIMATION ---------------- */
-    var isAnimating by remember { mutableStateOf(false) }
-
-    val slideOffsetX = remember { Animatable(0f) }
-//    val screenWidth = 400f // safe constant for now
-
-    val screenWidth = with(LocalDensity.current) {
-        LocalConfiguration.current.screenWidthDp.dp.toPx()
-    }
-
-    fun animateToDate(newDate: LocalDate, direction: Int) {
-        if (isAnimating) return  // 🚫 block re-entry
-
-        scope.launch {
-            isAnimating = true
-
-            // slide current page out
-            slideOffsetX.animateTo(direction * screenWidth)
-
-            // change date AFTER slide-out
-            selectedDate = newDate
-
-            // jump content to opposite side (invisible)
-            slideOffsetX.snapTo(-direction * screenWidth)
-
-            // slide new page in
-            slideOffsetX.animateTo(
-                targetValue = 0f,
-                animationSpec = spring(
-                    stiffness = Spring.StiffnessMedium,
-                    dampingRatio = Spring.DampingRatioLowBouncy
-                )
-            )
-            withFrameNanos { }
-            isAnimating = false
-        }
-    }
-
-    // Normalize swipe progress (0f → 1f)
-    val swipeProgress by remember {
-        derivedStateOf {
-            (kotlin.math.abs(slideOffsetX.value) / screenWidth)
-                .coerceIn(0f, 1f)
-        }
-    }
-
-// Fade slightly while swiping
-    val pageAlpha by remember {
-        derivedStateOf {
-            1f - (swipeProgress * 0.12f) // very subtle
-        }
-    }
-
-// Elevation for paper shadow
-    val pageElevation by remember {
-        derivedStateOf {
-            8.dp * swipeProgress
-        }
-    }
-
-    val shadowOffsetX by remember {
-        derivedStateOf {
-            if (slideOffsetX.value > 0) -6f else 6f
-        }
-    }
-
-    /* ---------------- theme Rulled line for unruled background ---------------- */
-
-    val isDark = isSystemInDarkTheme()
-
-    val ruledLineColor = if (isDark) {
-        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
-    } else {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-    }
-
-    val ruledLineThickness = if (isDark) 0.8f else 1.2f
-
-    val cursorColor = if (isDark) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
-
-    val pageShape = MaterialTheme.shapes.medium
-
-    val onBackgroundColor = MaterialTheme.colorScheme.onBackground
-
-    /* ---------------- UI ---------------- */
-
-    Scaffold(
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-
-        topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Transparent)
-                    .windowInsetsPadding(WindowInsets.statusBars) // ✅ ONLY HERE
-            )
-            TopAppBar(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                ),
-
-                navigationIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_app_logo),
-                            contentDescription = "App Logo",
-                            modifier = Modifier.height(80.dp)
-                        )
-                    }
-                },
-
-                title = {
-                },
-
-                actions = {
-                    IconButton(onClick = { showSearch = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                    // ✅ SAVE INDICATOR — ONLY IN EDIT MODE
-                    if (showEditor) {
-                        when (diaryViewModel.saveState) {
-                            DiaryViewModel.SaveState.SAVING -> {
-                                Text(
-                                    text = "Saving…",
-                                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f),
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(end = 12.dp)
-                                )
-                            }
-                            DiaryViewModel.SaveState.SAVED -> {
-                                Text(
-                                    text = "Saved",
-                                    color = MaterialTheme.colorScheme.onSecondary,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(end = 12.dp)
-                                )
-                            }
-
-                            DiaryViewModel.SaveState.DIRTY,
-                            DiaryViewModel.SaveState.IDLE -> {
-                                // no UI
-                            }
-                        }
-                    }
-                    // ✅ EDIT BUTTON — ONLY IN PREVIEW MODE
-                    if (!isToday && !diaryViewModel.isEditMode) {
-                        Text(
-                            text = "Edit",
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier
-                                .padding(end = 12.dp)
-                                .clickable { diaryViewModel.enableEditMode() },
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    IconButton(onClick = { showExportMenu = true }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "More",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = showExportMenu,
-                        onDismissRequest = { showExportMenu = false },
-                                modifier = Modifier
-                                .width(220.dp)
-
-                    ) {
-                        AppLockToggle(
-                            currentMode = lockMode,
-                            onEnableRequested = {
-                                // Confirm it's the owner before turning the lock on
-                                (context as? FragmentActivity)?.let { activity ->
-                                    AppLockState.authenticate(
-                                        activity,
-                                        {
-                                            scope.launch {
-                                                BackupPreferences.setLockMode(context, LockMode.BIOMETRIC)
-                                                snackbarHostState.showSnackbar("App lock enabled")
-                                            }
-                                        },
-                                        {
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar("Authentication failed")
-                                            }
-                                        }
-                                    )
-                                }
-                            },
-                            onDisableRequested = {
-                                scope.launch {
-                                    BackupPreferences.setLockMode(context, LockMode.OFF)
-                                    snackbarHostState.showSnackbar("App lock disabled")
-                                }
-                            }
-                        )
-
-                        Divider()
-
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = if (themeMode == ThemeMode.DARK)
-                                        "Switch to Light Mode"
-                                    else
-                                        "Switch to Dark Mode"
-                                )
-                            },
-                            onClick = {
-                                scope.launch {
-                                    val newMode =
-                                        if (themeMode == ThemeMode.DARK)
-                                            ThemeMode.LIGHT
-                                        else
-                                            ThemeMode.DARK
-
-                                    BackupPreferences.setThemeMode(context, newMode)
-                                }
-                            }
-                        )
-
-                        DropdownMenuItem(
-                            text = { Text("Backup & Restore") },
-                            onClick = {
-                                showExportMenu = false
-                                showBackupScreen = true
-                                isRestoreInProgress = true   // ⭐ ADD THIS
-                            }
-                        )
-                    }
+    LaunchedEffect(viewModel) {
+        viewModel.backupEvents.collect { event ->
+            snackbarHostState.showSnackbar(
+                when (event) {
+                    is BackupEvent.Success -> event.message
+                    is BackupEvent.Error -> event.message
                 }
             )
         }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            DiaryTopBar(
+                saveState = viewModel.saveState,
+                showSaveState = showEditor,
+                showEdit = !showEditor,
+                showMenu = showMenu,
+                onBack = onBack,
+                onSearch = { showSearch = true },
+                onEdit = { viewModel.enableEditMode() },
+                onMenu = { showMenu = it },
+                onSettings = { showMenu = false; onOpenSettings() },
+                onBackup = { showMenu = false; showBackupScreen = true }
+            )
+        }
     ) { padding ->
-
-        // ✅ TODO SECTION
-
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-        )
-
-        {
-            DateNavigationRow(
-                dateText = dateText,
-                color = iconColor,
-                onMoveDays = { days ->
-                    // Going back slides the page right (+1), forward slides it left (-1)
-                    animateToDate(currentDate.plusDays(days.toLong()), if (days < 0) 1 else -1)
-                },
-                onDateClick = { showCalendarPicker = true },
-                onTodayClick = {
-                    val today = LocalDate.now()
-                    if (currentDate != today) {
-                        val direction = if (currentDate.isBefore(today)) -1 else 1
-                        animateToDate(today, direction)
-                    }
-                }
-            )
-
-            Divider(
-                color = MaterialTheme.colorScheme.primary,
-                thickness = 2.dp
-            )
-
-// --- Editor Toolbar ---
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .pointerInput(selectedDate, showEditor,isAnimating) {
-                        if (!showEditor && !isAnimating) {
-                            var totalDrag = 0f
-
-                            detectHorizontalDragGestures(
-                                onHorizontalDrag = { _, dragAmount ->
-                                    totalDrag += dragAmount
-                                    val resistanceFactor = 0.75f
-                                    val resistedDrag = totalDrag * resistanceFactor
-
-                                    scope.launch {
-                                        slideOffsetX.snapTo(resistedDrag)
-                                    }
-                                },
-                                onDragEnd = {
-                                    val threshold = screenWidth * 0.18f
-
-                                    when {
-                                        totalDrag < -threshold ->
-                                            animateToDate(
-                                                currentDate.plusDays(1), -1
-                                            )
-
-                                        totalDrag > threshold ->
-                                            animateToDate(
-                                                currentDate.minusDays(1), +1
-                                            )
-
-                                        else ->
-                                            scope.launch {
-                                                slideOffsetX.animateTo(
-                                                    targetValue = 0f,
-                                                    animationSpec = spring(
-
-                                                        stiffness = 350f,              // heavier feel
-                                                        dampingRatio = 0.9f            // no bounce
-
-//                                                        stiffness = Spring.StiffnessMediumLow,
-//                                                        dampingRatio = Spring.DampingRatioMediumBouncy
-                                                    )
-                                                )
-                                            }
-                                    }
-                                    totalDrag = 0f
-                                },
-
-                            )
-                        }
-                    }
-
-            )
-
-            {
-                // ---------- PAGE STACK (Google Photos style) ----------
-                Box(modifier = Modifier.fillMaxSize()) {
-                    // ◀ PREVIOUS DAY (already loaded, blurred)
-                    pageStack[-1]?.let { page ->
-                        DiaryPage(
-                            text = page.text,
-                            todos = emptyList(),
-                            ruledLineColor = ruledLineColor,
-                            ruledLineThickness = ruledLineThickness,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    translationX = slideOffsetX.value - screenWidth
-                                    alpha = 0.6f
-                                }
-                                .blur(8.dp),
-
-                            onDeleteTodo = { diaryViewModel.deleteTodo(it) }
-
-                        )
-                    }
-
-                    // ⬛ CURRENT DAY (sharp, interactive)
-                    pageStack[0]?.let { page ->
-
-                        if (showEditor) {
-                            // ✅ EDITOR — NO animation, NO graphicsLayer
-                            Column(
-                                modifier = Modifier.fillMaxSize()
-                                    .fillMaxSize()
-                                    .imePadding()
-                            ) {
-                                EditorToolbar(
-                                    enabled = true,
-                                    onAddType = { showTypeDialog = true },
-                                    onFormat = { diaryViewModel.applyFormat(it) },
-                                    onAddTodoClick = { showAddTodoDialog = true },
-                                    onAddRecurringClick = { showRecurringTaskDialog = true },
-                                    onManageRecurringClick = { showRecurringManager = true }
-                                )
-
-                                Divider(color = MaterialTheme.colorScheme.primary, thickness = 1.dp)
-
-                                val keyboardController = LocalSoftwareKeyboardController.current
-                                val focusManager = LocalFocusManager.current
-
-                                BasicTextField(
-                                    visualTransformation = MarkdownVisualTransformation(onBackgroundColor),
-                                    value = diaryViewModel.diaryText,
-                                    onValueChange = diaryViewModel::updateDiaryText,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .verticalScroll(editorScrollState) // ✅ SAFE
-                                        .imePadding()
-                                        .navigationBarsPadding()
-                                        .pointerInput(Unit) {
-                                            detectTapGestures(onTap = {
-                                                keyboardController?.show()
-                                            })
-                                        },
-
-                                    textStyle = LocalTextStyle.current.copy(
-                                        fontFamily = DiaryHandwritingFont,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        fontSize = 18.sp,
-                                        lineHeight = 28.sp,
-                                        letterSpacing = 0.3.sp
-                                    ),
-
-                                    cursorBrush = SolidColor(cursorColor),
-                                    decorationBox = { inner ->
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(MaterialTheme.colorScheme.background)
-                                                .ruledBackground(
-                                                    lineColor = ruledLineColor,
-                                                    strokeWidth = ruledLineThickness
-                                                )
-                                                .padding(12.dp)
-                                        ) {
-                                            if (diaryViewModel.todos?.isNotEmpty() == true) {
-                                                Text(
-                                                    text = "Tasks",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f),
-                                                    modifier = Modifier.padding(bottom = 4.dp)
-                                                )
-                                            }
-
-                                            // ✅ TODOS INSIDE PAGE
-                                            diaryViewModel.todos?.forEach { todo ->
-
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(vertical = 4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Checkbox(
-                                                        checked = todo.isDone,
-                                                        onCheckedChange = {
-                                                            diaryViewModel.toggleTodo(todo, currentDate)
-                                                        }
-                                                    )
-
-                                                    Text(
-                                                        text = todo.title,
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .padding(start = 8.dp),
-                                                        textDecoration = if (todo.isDone)
-                                                            TextDecoration.LineThrough
-                                                        else null
-                                                    )
-
-                                                    // Daily tasks are deleted here; recurring ones
-                                                    // from "Manage recurring tasks"
-                                                    if (todo.type == TodoType.DAILY) {
-                                                        IconButton(onClick = { diaryViewModel.deleteTodo(todo) }) {
-                                                            Icon(
-                                                                imageVector = Icons.Default.Close,
-                                                                contentDescription = "Delete task",
-                                                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            Spacer(Modifier.height(8.dp))
-
-                                            // ✅ ACTUAL DIARY TEXT
-                                            inner()
-                                        }
-                                    }
-                                )
-                            }
-                            if ((diaryViewModel.recurringTodos.isNotEmpty())) {
-                                TextButton(
-                                    onClick = { showRecurringManager = true },
-                                    modifier = Modifier.padding(horizontal = 8.dp)
-                                ) {
-                                    Text(
-                                        text = "Manage recurring tasks (${diaryViewModel.recurringTodos.size})",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        } else {
-                            // ✅ PREVIEW — animated
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .ruledBackground(
-                                        lineColor = ruledLineColor,
-                                        strokeWidth = ruledLineThickness
-                                    )
-
-                                    .graphicsLayer {
-                                        translationX = slideOffsetX.value
-
-                                        // 📄 Slight page tilt (realism boost)
-                                        rotationY = (slideOffsetX.value / screenWidth) * 4f
-
-                                        // Subtle scale illusion
-                                        val progress = kotlin.math.abs(slideOffsetX.value) / screenWidth
-                                        val scale = 1f - (progress * 0.03f)
-                                        scaleX = scale
-                                        scaleY = scale
-
-                                        alpha = pageAlpha
-
-                                        cameraDistance = 12f * density
-                                    }
-
-                            ) {
-//                                var todoToDelete by remember { mutableStateOf<TodoEntity?>(null) }
-
-                                val todos = diaryViewModel.todos ?: emptyList()
-
-                                if (todos.isEmpty() && diaryViewModel.diaryText.text.isBlank()) {
-                                    EmptyDayPlaceholder(modifier = Modifier.fillMaxSize())
-                                } else {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .verticalScroll(previewScrollState)
-                                            .padding(12.dp)
-                                    ) {
-                                        // ✅ READ-ONLY todos — no checkbox interaction, no delete, no long-press
-                                        todos.forEach { todo ->
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Checkbox(
-                                                    checked = todo.isDone,
-                                                    onCheckedChange = null  // ✅ completely disabled — read only
-                                                )
-                                                Text(
-                                                    text = todo.title,
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .padding(start = 8.dp),
-                                                    color = MaterialTheme.colorScheme.onBackground.copy(
-                                                        alpha = if (todo.isDone) 0.5f else 1f
-                                                    ),
-                                                    textDecoration = if (todo.isDone) TextDecoration.LineThrough else null
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(Modifier.height(8.dp))
-
-                                        // Diary text — read only
-                                        Text(
-                                            text = diaryViewModel.diaryText.text,
-                                            style = LocalTextStyle.current.copy(
-                                                fontFamily = DiaryHandwritingFont,
-                                                color = MaterialTheme.colorScheme.onBackground,
-                                                fontSize = 18.sp,
-                                                lineHeight = 28.sp,
-                                                letterSpacing = 0.3.sp
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ▶ NEXT DAY (already loaded, blurred)
-                    pageStack[1]?.let { page ->
-                        DiaryPage(
-                            text = page.text,
-                            todos = emptyList(),
-                            ruledLineColor = ruledLineColor,
-                            ruledLineThickness = ruledLineThickness,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    translationX = slideOffsetX.value + screenWidth
-                                    alpha = 0.6f
-                                }
-                                .blur(8.dp),
-                            onDeleteTodo = { diaryViewModel.deleteTodo(it) }
-                        )
-                    }
-                }
-                }
-
-            /* -------- TYPE PICKER -------- */
-
-            if (showTypeDialog) {
-                ModalBottomSheet(onDismissRequest = { showTypeDialog = false }) {
-                    listOf("Food", "Workout", "Spent").forEach { type ->
-                        ListItem(
-                            headlineContent = { Text(type) },
-                            modifier = Modifier.clickable {
-                                showTypeDialog = false
-                                // insertion logic next step
-
-                                val template = templates.firstOrNull { it.label == type }
-                                template?.let {
-                                    diaryViewModel.insertTemplate(it)
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        if (showAddTodoDialog) {
-            AlertDialog(
-                onDismissRequest = { showAddTodoDialog = false },
-                title = { Text("Add Task") },
-                text = {
-                    TextField(
-                        value = newTodoText,
-                        onValueChange = { newTodoText = it },
-                        placeholder = { Text("Enter your task") }
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            if (newTodoText.isNotBlank()) {
-                                diaryViewModel.addTodo(newTodoText, currentDate)
-                                newTodoText = ""
-                                showAddTodoDialog = false
-                            }
-                        }
-                    ) {
-                        Text("OK")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = { showAddTodoDialog = false }
-                    ) {
-                        Text("Cancel")
-                    }
-                }
-            )
-        }
-
-        if (showRecurringTaskDialog) {
-            RecurringTaskDialog(
-                onDismiss = { showRecurringTaskDialog = false },
-                onConfirm = { taskTitle, start, end ->
-                    diaryViewModel.addRecurringTodo(taskTitle, start, end)
-                    showRecurringTaskDialog = false
-                }
-            )
-        }
-        if (showRecurringManager) {
-            RecurringTaskManagerSheet(
-                viewModel = diaryViewModel,
-                onDismiss = { showRecurringManager = false }
-            )
-        }
-    }
-    LaunchedEffect(Unit) {
-        diaryViewModel.reinitializeIfEmpty()
-        diaryViewModel.backupEvents.collect { event ->
-            val message = when (event) {
-                is BackupEvent.Success -> event.message
-                is BackupEvent.Error -> event.message
-            }
-
-            snackbarHostState.showSnackbar(
-                message = message,
-                duration = SnackbarDuration.Short
-            )
-        }
-    }
-
-    if (showCalendarPicker) {
-        ModalBottomSheet(
-            onDismissRequest = { showCalendarPicker = false }
+                .background(MaterialTheme.colorScheme.surfaceVariant) // the "desk" behind the page
         ) {
+            DateNavigationRow(
+                dateText = dateLabel(currentDate, today),
+                color = MaterialTheme.colorScheme.onSurface,
+                onMoveDays = { days -> goTo(currentDate.plusDays(days.toLong())) },
+                onDateClick = { showCalendar = true },
+                onTodayClick = { if (!isToday) goTo(today) }
+            )
+
+            HorizontalPager(
+                state = pagerState,
+                // Editing keeps the page still so selecting text never turns the page
+                userScrollEnabled = !showEditor,
+                beyondViewportPageCount = 1,
+                modifier = Modifier.weight(1f)
+            ) { page ->
+                val date = dateForPage(page)
+                PaperPage(pagerState = pagerState, page = page) {
+                    when {
+                        date != currentDate -> NeighbourPage(date, viewModel)
+                        showEditor -> EditorPage(
+                            viewModel = viewModel,
+                            date = date,
+                            onAddTodo = { showAddTodo = true },
+                            onAddRecurring = { showRecurringDialog = true },
+                            onTemplates = { showTemplates = true },
+                            onManageRecurring = { showRecurringManager = true }
+                        )
+                        else -> PreviewPage(viewModel)
+                    }
+                }
+            }
+        }
+    }
+
+    /* ---------------- SHEETS & DIALOGS ---------------- */
+
+    if (showTemplates) {
+        val templates = listOf(
+            DiaryTemplate("Workout", "🏋️"),
+            DiaryTemplate("Food", "🍔"),
+            DiaryTemplate("Spent", "💸")
+        )
+        ModalBottomSheet(onDismissRequest = { showTemplates = false }) {
+            templates.forEach { template ->
+                ListItem(
+                    headlineContent = { Text(template.label) },
+                    leadingContent = { Text(template.emoji) },
+                    modifier = Modifier.clickable {
+                        showTemplates = false
+                        viewModel.insertTemplate(template)
+                    }
+                )
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (showAddTodo) {
+        var newTodoText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddTodo = false },
+            title = { Text("Add Task") },
+            text = {
+                TextField(
+                    value = newTodoText,
+                    onValueChange = { newTodoText = it },
+                    placeholder = { Text("Enter your task") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newTodoText.isNotBlank()) {
+                        viewModel.addTodo(newTodoText.trim(), currentDate)
+                        showAddTodo = false
+                    }
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { showAddTodo = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showRecurringDialog) {
+        RecurringTaskDialog(
+            onDismiss = { showRecurringDialog = false },
+            onConfirm = { title, start, end ->
+                viewModel.addRecurringTodo(title, start, end)
+                showRecurringDialog = false
+            }
+        )
+    }
+
+    if (showRecurringManager) {
+        RecurringTaskManagerSheet(viewModel = viewModel, onDismiss = { showRecurringManager = false })
+    }
+
+    if (showCalendar) {
+        ModalBottomSheet(onDismissRequest = { showCalendar = false }) {
             CalendarMonthView(
                 currentMonth = YearMonth.from(currentDate),
-                entryDates = diaryViewModel.entryDates.toList(),
+                entryDates = viewModel.entryDates,
                 onDateClick = { date ->
-                    selectedDate = date
-                    showCalendarPicker = false
+                    showCalendar = false
+                    goTo(date)
                 }
             )
         }
     }
 
-    // 🔍 SEARCH SHEET
     if (showSearch) {
         SearchSheet(
             onClose = {
                 showSearch = false
-                diaryViewModel.clearSearch()
+                viewModel.clearSearch()
             },
             onResultClick = { date ->
                 showSearch = false
-                animateToDate(date, 0)
-            }
+                goTo(date)
+            },
+            viewModel = viewModel
         )
     }
 
-    // Drawn last so it covers the whole diary screen (not inside the top bar)
+    // Drawn last so it covers the whole diary screen
     if (showBackupScreen) {
         BackupRestoreScreen(
-            viewModel = diaryViewModel,
-            onBack = {
-                showBackupScreen = false
-                isRestoreInProgress = false
-            },
-            onExportStarted = {
-                isRestoreInProgress = true
-                onExportStarted()
-            },
-            onExportFinished = {
-                isRestoreInProgress = false
-                onExportFinished()
+            viewModel = viewModel,
+            onBack = { showBackupScreen = false },
+            onExportStarted = onExportStarted,
+            onExportFinished = onExportFinished
+        )
+    }
+}
+
+/* ---------------- TOP BAR ---------------- */
+
+@Composable
+private fun DiaryTopBar(
+    saveState: DiaryViewModel.SaveState,
+    showSaveState: Boolean,
+    showEdit: Boolean,
+    showMenu: Boolean,
+    onBack: () -> Unit,
+    onSearch: () -> Unit,
+    onEdit: () -> Unit,
+    onMenu: (Boolean) -> Unit,
+    onSettings: () -> Unit,
+    onBackup: () -> Unit
+) {
+    val barText = MaterialTheme.colorScheme.onPrimaryContainer
+    TopAppBar(
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            titleContentColor = barText,
+            actionIconContentColor = barText,
+            navigationIconContentColor = barText
+        ),
+        navigationIcon = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                }
+                Image(
+                    painter = painterResource(id = R.drawable.ic_app_logo),
+                    contentDescription = "App Logo",
+                    modifier = Modifier.height(48.dp)
+                )
+            }
+        },
+        title = {},
+        actions = {
+            IconButton(onClick = onSearch) { Icon(Icons.Default.Search, contentDescription = "Search") }
+
+            if (showSaveState) {
+                val status = when (saveState) {
+                    DiaryViewModel.SaveState.DIRTY -> "Typing…"
+                    DiaryViewModel.SaveState.SAVING -> "Saving…"
+                    DiaryViewModel.SaveState.SAVED -> "Saved"
+                    DiaryViewModel.SaveState.IDLE -> ""
+                }
+                if (status.isNotEmpty()) {
+                    Text(
+                        status,
+                        fontSize = 12.sp,
+                        color = barText.copy(alpha = if (saveState == DiaryViewModel.SaveState.SAVED) 1f else 0.7f),
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+            }
+            if (showEdit) {
+                TextButton(onClick = onEdit) {
+                    Text("Edit", color = barText, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Box {
+                IconButton(onClick = { onMenu(true) }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More")
+                }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { onMenu(false) }) {
+                    DropdownMenuItem(text = { Text("Settings") }, onClick = onSettings)
+                    DropdownMenuItem(text = { Text("Backup & Restore") }, onClick = onBackup)
+                }
+            }
+        }
+    )
+}
+
+/* ---------------- PAGES ---------------- */
+
+/** One sheet of paper on the desk; slides, fades and shrinks a little while swiping. */
+@Composable
+private fun PaperPage(pagerState: PagerState, page: Int, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val offset = abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                    .coerceIn(0f, 1f)
+                alpha = 1f - 0.25f * offset
+                val scale = 1f - 0.05f * offset
+                scaleX = scale
+                scaleY = scale
+            }
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .shadow(elevation = 6.dp, shape = shape)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun ruledLineColor(): Color =
+    if (LocalDarkTheme.current) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+    else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+
+private val DIARY_LINE_HEIGHT = 28.sp
+private val PAGE_PADDING = 12.dp
+
+@Composable
+private fun diaryTextStyle(fontSize: TextUnit = LocalDiaryTextSize.current) = LocalTextStyle.current.copy(
+    fontFamily = DiaryHandwritingFont,
+    color = MaterialTheme.colorScheme.onBackground,
+    fontSize = fontSize,
+    lineHeight = DIARY_LINE_HEIGHT * (fontSize.value / 18f),
+    letterSpacing = 0.3.sp
+)
+
+/** Ruled lines spaced exactly one text line apart, so writing sits on the lines. */
+@Composable
+private fun Modifier.diaryLines(): Modifier {
+    val lineHeight = diaryTextStyle().lineHeight
+    val spacing = with(LocalDensity.current) { lineHeight.toDp() }
+    return ruledBackground(
+        lineColor = ruledLineColor(),
+        lineSpacing = spacing,
+        topOffset = PAGE_PADDING,
+        strokeWidth = if (LocalDarkTheme.current) 0.8f else 1.2f
+    )
+}
+
+@Composable
+private fun NeighbourPage(date: LocalDate, viewModel: DiaryViewModel) {
+    val text by produceState("", date) { value = viewModel.textFor(date) }
+    if (text.isBlank()) {
+        EmptyDayPlaceholder(modifier = Modifier.fillMaxSize())
+    } else {
+        Text(
+            text = text,
+            style = diaryTextStyle(),
+            modifier = Modifier
+                .fillMaxSize()
+                .diaryLines()
+                .padding(PAGE_PADDING)
+        )
+    }
+}
+
+@Composable
+private fun PreviewPage(viewModel: DiaryViewModel) {
+    val todos = viewModel.todos ?: emptyList()
+    if (todos.isEmpty() && viewModel.diaryText.text.isBlank()) {
+        EmptyDayPlaceholder(modifier = Modifier.fillMaxSize())
+        return
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .diaryLines()
+            .padding(PAGE_PADDING)
+    ) {
+        // Read-only tasks
+        todos.forEach { todo -> TaskRow(todo = todo, onToggle = null, onDelete = null) }
+        if (todos.isNotEmpty()) Spacer(Modifier.height(8.dp))
+
+        Text(text = viewModel.diaryText.text, style = diaryTextStyle())
+
+        viewModel.lastEdited?.let { edited ->
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Last edited ${formatEdited(edited)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditorPage(
+    viewModel: DiaryViewModel,
+    date: LocalDate,
+    onAddTodo: () -> Unit,
+    onAddRecurring: () -> Unit,
+    onTemplates: () -> Unit,
+    onManageRecurring: () -> Unit
+) {
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val textColor = MaterialTheme.colorScheme.onBackground
+
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
+        EditorToolbar(
+            enabled = true,
+            onAddType = onTemplates,
+            onFormat = { viewModel.applyFormat(it) },
+            onAddTodoClick = onAddTodo,
+            onAddRecurringClick = onAddRecurring,
+            onManageRecurringClick = onManageRecurring
+        )
+
+        // Info row: word count, last edit, recurring tasks
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = PAGE_PADDING),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val words = remember(viewModel.diaryText.text) { wordCount(viewModel.diaryText.text) }
+            val info = buildString {
+                append(if (words == 1) "1 word" else "$words words")
+                viewModel.lastEdited?.let { append(" · Last edited ${formatEdited(it)}") }
+            }
+            Text(
+                info,
+                style = MaterialTheme.typography.labelSmall,
+                color = textColor.copy(alpha = 0.55f),
+                modifier = Modifier.weight(1f)
+            )
+            if (viewModel.recurringTodos.isNotEmpty()) {
+                TextButton(onClick = onManageRecurring) {
+                    Text(
+                        "Manage recurring tasks (${viewModel.recurringTodos.size})",
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+
+        BasicTextField(
+            visualTransformation = MarkdownVisualTransformation(textColor),
+            value = viewModel.diaryText,
+            onValueChange = viewModel::updateDiaryText,
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .pointerInput(Unit) { detectTapGestures(onTap = { keyboardController?.show() }) },
+            textStyle = diaryTextStyle(),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            decorationBox = { inner ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .diaryLines()
+                        .padding(PAGE_PADDING)
+                ) {
+                    val todos = viewModel.todos.orEmpty()
+                    if (todos.isNotEmpty()) {
+                        Text(
+                            text = "Tasks",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = textColor.copy(alpha = 0.45f),
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                    }
+                    todos.forEach { todo ->
+                        TaskRow(
+                            todo = todo,
+                            onToggle = { viewModel.toggleTodo(todo, date) },
+                            // Daily tasks are deleted here; recurring ones from "Manage recurring tasks"
+                            onDelete = if (todo.type == TodoType.DAILY) ({ viewModel.deleteTodo(todo) }) else null
+                        )
+                    }
+                    if (todos.isNotEmpty()) Spacer(Modifier.height(8.dp))
+                    inner()
+                }
             }
         )
     }
- }
+}
+
+@Composable
+private fun TaskRow(todo: TodoEntity, onToggle: (() -> Unit)?, onDelete: (() -> Unit)?) {
+    val textColor = MaterialTheme.colorScheme.onBackground
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = todo.isDone,
+            onCheckedChange = onToggle?.let { { _: Boolean -> it() } }
+        )
+        Text(
+            text = todo.title,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 8.dp),
+            color = textColor.copy(alpha = if (todo.isDone) 0.5f else 1f),
+            textDecoration = if (todo.isDone) TextDecoration.LineThrough else null
+        )
+        if (onDelete != null) {
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Close, contentDescription = "Delete task", tint = textColor.copy(alpha = 0.5f))
+            }
+        }
+    }
+}
+
+/* ---------------- HELPERS ---------------- */
+
+private val shortDate = DateTimeFormatter.ofPattern("d MMM")
+
+private fun dateLabel(date: LocalDate, today: LocalDate): String =
+    if (date == today) "Today (${date.format(shortDate)})" else date.format(shortDate)
+
+internal fun wordCount(text: String): Int = text.split(Regex("\\s+")).count { it.any(Char::isLetterOrDigit) }
+
+/** "9:32 PM" for today, otherwise "25 Oct, 9:32 PM". */
+internal fun formatEdited(millis: Long, now: Long = System.currentTimeMillis()): String {
+    val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(millis))
+    val day = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+    return if (day.format(Date(millis)) == day.format(Date(now))) time
+    else SimpleDateFormat("d MMM", Locale.getDefault()).format(Date(millis)) + ", " + time
+}
