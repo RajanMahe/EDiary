@@ -11,7 +11,7 @@ import java.time.LocalDate
  * Single entry point to diary data. ViewModels talk to this, never to the DAO,
  * so multi-step changes run in one transaction and the rules live in one place.
  */
-class DiaryRepository private constructor(private val db: DiaryDatabase) {
+class DiaryRepository internal constructor(private val db: DiaryDatabase) {
 
     private val dao = db.diaryDao()
 
