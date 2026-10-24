@@ -1,6 +1,7 @@
 package com.aburv.kurippidu.data
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -159,5 +160,11 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: DiaryRepository(DiaryDatabase.getDatabase(context)).also { INSTANCE = it }
             }
+
+        /** Tests only: make get() return [repository] (an in-memory DB), or reset with null. */
+        @VisibleForTesting
+        fun setInstanceForTests(repository: DiaryRepository?) {
+            synchronized(this) { INSTANCE = repository }
+        }
     }
 }

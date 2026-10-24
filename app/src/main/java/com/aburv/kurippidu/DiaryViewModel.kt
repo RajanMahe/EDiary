@@ -134,15 +134,20 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
 
     private var loadTextJob: Job? = null
 
+    // Counts edits, so a load that finishes after the user started typing
+    // doesn't replace what they typed
+    private var editCount = 0
+
     fun loadDiaryForDate(date: LocalDate) {
         currentDate = date
+        val editsAtStart = editCount
 
         // Cancel the previous day's load so a slow result can't overwrite this day
         loadTextJob?.cancel()
         loadTextJob = viewModelScope.launch {
             val diaryId = activeDiaryFlow.filterNotNull().first()
             val entry = repository.getEntry(diaryId, date)
-            if (currentDate == date) {
+            if (currentDate == date && editCount == editsAtStart) {
                 diaryText = TextFieldValue(entry?.content ?: "")
             }
         }
@@ -158,7 +163,9 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         scheduleAutoSave()
     }
 
+    // Called after every edit (typing, formatting, templates)
     private fun scheduleAutoSave() {
+        editCount++
         autosaveJob?.cancel()
         autosaveJob = viewModelScope.launch {
             delay(800)
