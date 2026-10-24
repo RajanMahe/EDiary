@@ -111,6 +111,28 @@ class MainActivityTest {
         waitForText("My Diaries")
     }
 
+    private fun secureFlagSet(): Boolean {
+        var secure = false
+        scenario!!.onActivity {
+            secure = it.window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_SECURE != 0
+        }
+        return secure
+    }
+
+    @Test
+    fun `lock on hides the app in Recents and blocks screenshots`() {
+        launch(LockMode.BIOMETRIC)
+        waitForText("Unlock")
+        assertEquals(true, secureFlagSet())
+    }
+
+    @Test
+    fun `lock off allows screenshots`() {
+        launch(LockMode.OFF)
+        waitForText("My Diaries")
+        assertEquals(false, secureFlagSet())
+    }
+
     @Test
     fun `unlocking returns to the screen you were on`() {
         val diaryId = runBlocking { data.dao.insertDiary(DiaryOwnerEntity(title = "Daily")).toInt() }

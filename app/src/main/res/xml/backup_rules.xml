@@ -1,16 +1,12 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older that API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Android's own cloud backup (Android 11 and older).
+   The diary database is encrypted with a key that can't leave this phone,
+   so neither is backed up here: use the app's Backup & Restore instead.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
-
-
+    <exclude domain="database" path="diary_db" />
+    <exclude domain="database" path="diary_db-wal" />
+    <exclude domain="database" path="diary_db-shm" />
+    <exclude domain="sharedpref" path="kurippidu_db_key.xml" />
 </full-backup-content>
-

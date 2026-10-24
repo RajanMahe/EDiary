@@ -6,6 +6,9 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.aburv.kurippidu.data.security.DatabaseEncryption
+import com.aburv.kurippidu.data.security.DatabaseKey
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
     entities = [
@@ -147,21 +150,41 @@ abstract class DiaryDatabase : RoomDatabase() {
             MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
         )
 
+        const val NAME = "diary_db"
+
         fun getDatabase(context: Context): DiaryDatabase {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    DiaryDatabase::class.java,
-                    "diary_db"
-                )
-                    .addMigrations(*ALL_MIGRATIONS)
-                    // Only very old v1 databases are reset (no 1 → 2 migration exists).
-                    // Any other missing migration fails loudly instead of wiping user data.
-                    .fallbackToDestructiveMigrationFrom(1)
-
-                    .build()
-                    .also { INSTANCE = it }
+                INSTANCE ?: build(context.applicationContext).also { INSTANCE = it }
             }
+        }
+
+        private fun build(context: Context): DiaryDatabase {
+            val builder = Room.databaseBuilder(context, DiaryDatabase::class.java, NAME)
+                .addMigrations(*ALL_MIGRATIONS)
+                // Only very old v1 databases are reset (no 1 → 2 migration exists).
+                // Any other missing migration fails loudly instead of wiping user data.
+                .fallbackToDestructiveMigrationFrom(1)
+
+            // Encrypt with SQLCipher. If this phone can't (or the one-time
+            // conversion fails), keep using the plain database and retry next launch.
+            val encrypted = runCatching {
+                System.loadLibrary("sqlcipher")
+                val passphrase = DatabaseKey.getOrCreate(context)
+                DatabaseEncryption.setAsideIfUnreadable(context, NAME, passphrase)
+                if (DatabaseEncryption.encryptIfNeeded(context, NAME, passphrase)) passphrase else null
+            }.getOrNull()
+
+            if (encrypted == null) {
+                // Can't use encryption this time. An already-encrypted file can't be
+                // opened without its key, so move it aside instead of crashing.
+                val file = context.getDatabasePath(NAME)
+                if (DatabaseEncryption.stateOf(file) == DatabaseEncryption.State.ENCRYPTED) {
+                    file.renameTo(java.io.File("${file.path}.unreadable-${System.currentTimeMillis()}"))
+                }
+            } else {
+                builder.openHelperFactory(SupportOpenHelperFactory(encrypted.toByteArray(Charsets.UTF_8)))
+            }
+            return builder.build()
         }
     }
 }

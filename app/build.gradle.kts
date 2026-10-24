@@ -53,6 +53,9 @@ android {
         debug {
             // ./gradlew createDebugUnitTestCoverageReport
             enableUnitTestCoverage = true
+            // Installs next to the real app instead of replacing it
+            applicationIdSuffix = ".debug"
+            resValue("string", "app_name", "Kurippidu (debug)")
         }
         release {
             isMinifyEnabled = true
@@ -121,6 +124,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.documentfile)
+    implementation(libs.sqlcipher.android) { artifact { type = "aar" } }
+    implementation(libs.androidx.sqlite)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

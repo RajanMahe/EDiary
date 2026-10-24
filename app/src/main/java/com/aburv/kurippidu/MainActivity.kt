@@ -2,6 +2,7 @@ package com.aburv.kurippidu
 
 import android.app.Activity
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.ui.input.pointer.pointerInput
@@ -71,6 +72,12 @@ class MainActivity : FragmentActivity() {
         lifecycleScope.launch {
             BackupPreferences.lockMode(this@MainActivity).collect { mode ->
                 lockMode = mode
+                // With the lock on, hide the diary in Recents and block screenshots
+                if (mode == LockMode.BIOMETRIC) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
                 if (!lockModeLoaded) {
                     lockModeLoaded = true
                     if (mode == LockMode.OFF) AppLockState.isUnlocked = true
