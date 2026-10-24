@@ -21,8 +21,8 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest
+      - name: Unit and UI tests (with coverage)
+        run: ./gradlew testDebugUnitTest createDebugUnitTestCoverageReport
 
       - name: Build debug APK
         run: ./gradlew assembleDebug
@@ -33,6 +33,12 @@ jobs:
         with:
           name: test-report
           path: app/build/reports/tests/
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: app/build/reports/coverage/test/debug/
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

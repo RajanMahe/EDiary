@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
 
 plugins {
     alias(libs.plugins.android.application)
@@ -80,6 +81,11 @@ android {
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            // A fresh JVM per test class: Compose sets up some global state once per
+            // process, which breaks Robolectric UI tests that run after other classes.
+            it.forkEvery = 1
+        }
     }
 }
 
@@ -124,4 +130,15 @@ dependencies {
     androidTestImplementation(libs.androidx.test.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+}
+
+// Count code run inside Robolectric tests in the coverage report.
+// afterEvaluate: the Android plugin attaches JaCoCo to test tasks late.
+afterEvaluate {
+    tasks.withType<Test>().configureEach {
+        extensions.findByType(JacocoTaskExtension::class.java)?.apply {
+            isIncludeNoLocationClasses = true
+            excludes = listOf("jdk.internal.*")
+        }
+    }
 }

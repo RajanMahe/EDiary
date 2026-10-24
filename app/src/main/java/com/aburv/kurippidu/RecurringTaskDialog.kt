@@ -9,7 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -116,8 +116,10 @@ fun AppDatePickerDialog(
     onDismiss: () -> Unit,
     onDateSelected: (LocalDate) -> Unit
 ) {
+    // The Material date picker works in UTC days. Converting with the phone's
+    // timezone shifted the date by one day east of UTC (e.g. India).
     val initialMillis = initialDate
-        .atStartOfDay(ZoneId.systemDefault())
+        .atStartOfDay(ZoneOffset.UTC)
         .toInstant()
         .toEpochMilli()
 
@@ -129,7 +131,7 @@ fun AppDatePickerDialog(
             TextButton(onClick = {
                 state.selectedDateMillis?.let { millis ->
                     val picked = Instant.ofEpochMilli(millis)
-                        .atZone(ZoneId.systemDefault())
+                        .atZone(ZoneOffset.UTC)
                         .toLocalDate()
                     onDateSelected(picked)
                 }

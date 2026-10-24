@@ -115,19 +115,21 @@ fun BackupRestoreScreen(
             return
         }
         scope.launch {
-            try {
+            val message = try {
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(uri)?.use {
                         it.write(content.toByteArray())
                     } ?: error("Could not open file")
                 }
                 BackupPreferences.setLastBackupTime(context, System.currentTimeMillis())
-                snackbarHostState.showSnackbar("Backup saved")
+                "Backup saved"
             } catch (e: Exception) {
-                snackbarHostState.showSnackbar("Export failed: ${e.message}")
+                "Export failed: ${e.message}"
             } finally {
+                // Re-enable the lock now, not after the message disappears (~4 s)
                 onExportFinished()
             }
+            snackbarHostState.showSnackbar(message)
         }
     }
 

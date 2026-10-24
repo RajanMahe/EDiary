@@ -1,6 +1,7 @@
 package com.aburv.kurippidu.testutil
 
 import android.content.Context
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.aburv.kurippidu.data.DiaryDao
@@ -56,3 +57,10 @@ fun eventually(timeoutMs: Long = 5_000, assertion: () -> Unit) {
         }
     }
 }
+
+/**
+ * Clicks through the accessibility action instead of a simulated touch.
+ * On the JVM, touches can miss bottom sheets and pop-ups while they animate in.
+ */
+fun androidx.compose.ui.test.SemanticsNodeInteraction.tap(): androidx.compose.ui.test.SemanticsNodeInteraction =
+    performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)

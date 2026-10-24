@@ -7,7 +7,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -174,16 +173,16 @@ class MainActivity : FragmentActivity() {
         if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
 
         isAuthInProgress = true
-        BiometricAuthHelper(
-            activity = this,
-            onSuccess = {
+        AppLockState.authenticate(
+            this,
+            {
                 AppLockState.isUnlocked = true
                 isAuthInProgress = false
             },
-            onError = {
+            {
                 isAuthInProgress = false
             }
-        ).authenticate()
+        )
     }
 }
 
@@ -191,12 +190,10 @@ class MainActivity : FragmentActivity() {
 private fun LockedScreen(onUnlock: () -> Unit) {
     val activity = LocalContext.current as? Activity
     val focusManager = LocalFocusManager.current
-    val keyboardController = LocalSoftwareKeyboardController.current
 
-    // Stop typing into the hidden diary page underneath
+    // Stop typing into the hidden diary page underneath (losing focus also closes the keyboard)
     LaunchedEffect(Unit) {
         focusManager.clearFocus(force = true)
-        keyboardController?.hide()
     }
 
     // Back while locked leaves the app instead of navigating the hidden screens

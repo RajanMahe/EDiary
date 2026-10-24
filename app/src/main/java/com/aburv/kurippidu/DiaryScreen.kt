@@ -386,22 +386,23 @@ fun DiaryScreen(
                         AppLockToggle(
                             currentMode = lockMode,
                             onEnableRequested = {
-                                val activity = context as FragmentActivity
-
-                                BiometricAuthHelper(
-                                    activity = activity,
-                                    onSuccess = {
-                                        scope.launch {
-                                            BackupPreferences.setLockMode(context, LockMode.BIOMETRIC)
-                                            snackbarHostState.showSnackbar("App lock enabled")
+                                // Confirm it's the owner before turning the lock on
+                                (context as? FragmentActivity)?.let { activity ->
+                                    AppLockState.authenticate(
+                                        activity,
+                                        {
+                                            scope.launch {
+                                                BackupPreferences.setLockMode(context, LockMode.BIOMETRIC)
+                                                snackbarHostState.showSnackbar("App lock enabled")
+                                            }
+                                        },
+                                        {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Authentication failed")
+                                            }
                                         }
-                                    },
-                                    onError = {
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Authentication failed")
-                                        }
-                                    }
-                                ).authenticate()
+                                    )
+                                }
                             },
                             onDisableRequested = {
                                 scope.launch {
