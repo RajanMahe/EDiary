@@ -7,7 +7,8 @@ import kotlinx.serialization.Serializable
  *
  * Version history
  * - 1: a plain JSON array of {date, content} for one diary (still readable)
- * - 2: this object
+ * - 2: this object, as a .json file
+ * - 3: same object inside a .zip together with the photos (attachments/…)
  *
  * New fields must have defaults so older files keep decoding.
  */
@@ -21,7 +22,7 @@ data class FullBackup(
 ) {
     companion object {
         const val APP_ID = "kurippidu"
-        const val CURRENT_VERSION = 2
+        const val CURRENT_VERSION = 3
     }
 }
 

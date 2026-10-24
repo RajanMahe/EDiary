@@ -131,16 +131,17 @@ class BackupRestoreScreenTest {
 
         val request = nextStartedIntent()
         assertEquals(Intent.ACTION_CREATE_DOCUMENT, request.action)
-        assertEquals("application/json", request.type)
+        assertEquals("application/zip", request.type)
         assertTrue(request.getStringExtra(Intent.EXTRA_TITLE)!!.startsWith("kurippidu_backup_"))
         assertEquals(1, exportStarted)
 
-        val file = File.createTempFile("backup", ".json")
+        val file = File.createTempFile("backup", ".zip")
         pickerReturns(request, file)
 
         waitFor(hasText("Backup saved"))
-        val saved = (BackupCodec.decode(file.readText()) as ParsedBackup.Full).backup
-        assertEquals(2, saved.version)
+        val json = com.aburv.kurippidu.backup.BackupArchive.read(file.readBytes(), File(file.parentFile, "unpacked"))
+        val saved = (BackupCodec.decode(json) as ParsedBackup.Full).backup
+        assertEquals(3, saved.version)
         assertEquals(listOf("First", "Second"), saved.diaries.single().entries.map { it.content })
         assertEquals(1, exportFinished)
         assertNotNull(runBlocking { BackupPreferences.lastBackupTime(context).first() })

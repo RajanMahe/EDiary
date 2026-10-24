@@ -14,9 +14,11 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
     entities = [
         DiaryOwnerEntity::class,
         DiaryEntity::class,
-        TodoEntity::class
+        TodoEntity::class,
+        AttachmentEntity::class,
+        EntryTagEntity::class
     ],
-    version = 9,
+    version = 11,
     exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
@@ -167,9 +169,55 @@ abstract class DiaryDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 🔹 Migration 9 → 10
+         * Photos on diary pages.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS attachments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        entryId INTEGER NOT NULL,
+                        fileName TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        FOREIGN KEY(entryId) REFERENCES entries(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_attachments_entryId ON attachments (entryId)")
+            }
+        }
+
+        /**
+         * 🔹 Migration 10 → 11
+         * #tags: a lookup table, filled from the text of existing entries.
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS entry_tags (
+                        entryId INTEGER NOT NULL,
+                        tag TEXT NOT NULL,
+                        PRIMARY KEY(entryId, tag),
+                        FOREIGN KEY(entryId) REFERENCES entries(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_entry_tags_tag ON entry_tags (tag)")
+
+                database.query("SELECT id, content FROM entries").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getInt(0)
+                        Tags.extract(cursor.getString(1).orEmpty()).forEach { tag ->
+                            database.execSQL("INSERT OR IGNORE INTO entry_tags (entryId, tag) VALUES (?, ?)", arrayOf<Any>(id, tag))
+                        }
+                    }
+                }
+            }
+        }
+
         val ALL_MIGRATIONS = arrayOf(
             MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-            MIGRATION_8_9
+            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
         )
 
         const val NAME = "diary_db"

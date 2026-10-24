@@ -22,6 +22,15 @@ class MainDispatcherRule(
     }
 
     override fun finished(description: Description) {
+        // A background thread may still be finishing a resume on Main; retry briefly
+        repeat(20) {
+            try {
+                Dispatchers.resetMain()
+                return
+            } catch (e: IllegalStateException) {
+                Thread.sleep(25)
+            }
+        }
         Dispatchers.resetMain()
     }
 }

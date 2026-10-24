@@ -514,4 +514,58 @@ class DiaryViewModelTest {
         Thread.sleep(200)
         assertEquals(day, viewModel.currentDate)
     }
+
+    /* ---------------- CHECKLISTS & VOICE ---------------- */
+
+    @Test
+    fun `checklist button toggles the cursor's line`() {
+        viewModel.updateDiaryText(TextFieldValue("Shopping\nmilk\nbread", selection = TextRange(11)))
+        viewModel.toggleChecklistAtCursor()
+        assertEquals("Shopping\n☐ milk\nbread", viewModel.diaryText.text)
+        assertEquals(13, viewModel.diaryText.selection.start)
+
+        viewModel.toggleChecklistAtCursor()
+        assertEquals("Shopping\nmilk\nbread", viewModel.diaryText.text)
+    }
+
+    @Test
+    fun `ticking a checklist line saves straight away`() {
+        viewModel.loadDiaryForDate(day)
+        eventually { assertEquals("", viewModel.diaryText.text) }
+        viewModel.updateDiaryText(TextFieldValue("☐ milk\n☐ bread"))
+
+        viewModel.toggleChecklistLine(1)
+
+        assertEquals("☐ milk\n☑ bread", viewModel.diaryText.text)
+        eventually { assertEquals("☐ milk\n☑ bread", savedText(day)) }
+
+        viewModel.toggleChecklistLine(1)
+        assertEquals("☐ milk\n☐ bread", viewModel.diaryText.text)
+        viewModel.toggleChecklistLine(5) // no such line: nothing happens
+        assertEquals("☐ milk\n☐ bread", viewModel.diaryText.text)
+    }
+
+    @Test
+    fun `spoken text goes in at the cursor with a space`() {
+        viewModel.updateDiaryText(TextFieldValue("Today was", selection = TextRange(9)))
+        viewModel.insertAtCursor("really good ")
+        assertEquals("Today was really good", viewModel.diaryText.text)
+        assertEquals(SaveState.DIRTY, viewModel.saveState)
+
+        viewModel.insertAtCursor("   ")
+        assertEquals("Today was really good", viewModel.diaryText.text)
+    }
+
+    @Test
+    fun `tags in search`() {
+        save(day, "Run #health")
+        save(day.plusDays(1), "Lunch")
+        eventually { assertEquals(listOf("health"), viewModel.tags.map { it.tag }) }
+
+        viewModel.onTagSelected("health")
+        eventually { assertEquals(listOf("Run #health"), viewModel.searchResults.map { it.content }) }
+
+        viewModel.onTagSelected("health") // tap again: off
+        assertEquals(null, viewModel.selectedTag)
+    }
 }

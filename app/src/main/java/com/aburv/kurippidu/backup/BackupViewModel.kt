@@ -10,7 +10,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aburv.kurippidu.AutoBackupFrequency
 import com.aburv.kurippidu.BackupPreferences
-import com.aburv.kurippidu.data.backup.BackupCodec
 import com.aburv.kurippidu.data.backup.FullBackup
 import com.aburv.kurippidu.data.backup.ParsedBackup
 import com.aburv.kurippidu.data.backup.RestoreSummary
@@ -50,12 +49,21 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
 
     /* ---------------- MANUAL ---------------- */
 
-    suspend fun exportAll(): String = withContext(Dispatchers.IO) { service.createBackupJson() }
+    /** Writes the full backup (.zip with photos) to [out]. */
+    suspend fun exportAllTo(out: java.io.OutputStream) = withContext(Dispatchers.IO) { service.writeBackupZip(out) }
 
     suspend fun recordManualBackup() = BackupPreferences.setLastBackupTime(context, System.currentTimeMillis())
 
-    /** @throws com.aburv.kurippidu.data.backup.BackupFormatException */
-    suspend fun parse(text: String): ParsedBackup = withContext(Dispatchers.Default) { BackupCodec.decode(text) }
+    /**
+     * Reads a picked backup file (zip or JSON). Photos are unpacked straight away;
+     * call [discardUnpacked] if the user then cancels.
+     * @throws com.aburv.kurippidu.data.backup.BackupFormatException
+     */
+    suspend fun parse(bytes: ByteArray): ParsedBackup = withContext(Dispatchers.IO) { service.readBackup(bytes) }
+
+    suspend fun discardUnpacked() = withContext(Dispatchers.IO) {
+        com.aburv.kurippidu.data.DiaryRepository.get(context).deleteUnusedPhotoFiles()
+    }
 
     suspend fun restore(backup: FullBackup): RestoreSummary = service.restore(backup)
 

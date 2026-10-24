@@ -11,6 +11,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextInputSelection
+import androidx.compose.ui.test.hasAnySibling
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.onRoot
@@ -32,6 +34,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -282,5 +285,73 @@ class DiaryScreenTest {
             )
         }
         waitFor(hasText("Reminder set", substring = true))
+    }
+
+    /* ---------------- PHASE 4 ---------------- */
+
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
+    @Test
+    fun `bold button wraps a word`() {
+        compose.onNode(hasSetTextAction()).performTextInput("big")
+        compose.onNode(hasSetTextAction()).performTextInputSelection(androidx.compose.ui.text.TextRange(0, 3))
+        compose.onNodeWithContentDescription("Bold").tap()
+        waitFor(hasText("**big**", substring = true))
+    }
+
+    @Test
+    fun `checklist button makes a checklist line`() {
+        compose.onNode(hasSetTextAction()).performTextInput("Buy milk")
+        compose.onNodeWithContentDescription("Checklist").tap()
+        waitFor(hasText("☐ Buy milk", substring = true))
+    }
+
+    @Test
+    fun `checklist can be ticked on a read-only day`() {
+        runBlocking { data.repository.saveEntry(diaryId, today.minusDays(1), "☐ Pack bags\nNotes") }
+        compose.onNodeWithText("<").tap()
+        waitFor(hasText("Pack bags"))
+        compose.onNode(androidx.compose.ui.test.isToggleable() and hasAnySibling(hasText("Pack bags"))).tap()
+        eventually {
+            assertEquals("☑ Pack bags\nNotes", runBlocking { data.repository.getEntry(diaryId, today.minusDays(1)) }?.content)
+        }
+    }
+
+    @Test
+    fun `speaking adds the words`() {
+        compose.onNodeWithContentDescription("Speak to write").tap()
+        val request = org.robolectric.Shadows.shadowOf(compose.activity).nextStartedActivityForResult
+        assertEquals(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH, request.intent.action)
+
+        val result = android.content.Intent().putStringArrayListExtra(
+            android.speech.RecognizerIntent.EXTRA_RESULTS, arrayListOf("hello from my voice")
+        )
+        compose.runOnUiThread {
+            org.robolectric.Shadows.shadowOf(compose.activity)
+                .receiveResult(request.intent, android.app.Activity.RESULT_OK, result)
+        }
+        waitFor(hasText("hello from my voice", substring = true))
+    }
+
+    @Test
+    fun `add photo offers gallery and camera`() {
+        compose.onNodeWithContentDescription("Add photo").tap()
+        waitFor(hasText("Choose from gallery"))
+        compose.onNodeWithText("Take a photo").assertExists()
+        compose.onNodeWithText("Choose from gallery").tap()
+        val request = org.robolectric.Shadows.shadowOf(compose.activity).nextStartedActivityForResult
+        assertTrue(request.intent.action in setOf(android.provider.MediaStore.ACTION_PICK_IMAGES, android.content.Intent.ACTION_OPEN_DOCUMENT, android.content.Intent.ACTION_GET_CONTENT))
+    }
+
+    @Test
+    fun `search shows tag chips that filter`() {
+        runBlocking {
+            data.repository.saveEntry(diaryId, today.minusDays(3), "Ran 5k #health")
+            data.repository.saveEntry(diaryId, today.minusDays(4), "Cinema")
+        }
+        compose.onNodeWithContentDescription("Search").tap()
+        waitFor(hasText("#health (1)"))
+        compose.onNodeWithText("#health (1)").tap()
+        waitFor(hasText("Ran 5k #health", substring = true))
+        compose.onNodeWithText("Cinema").assertDoesNotExist()
     }
 }

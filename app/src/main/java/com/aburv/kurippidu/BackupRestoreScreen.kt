@@ -61,9 +61,10 @@ fun BackupRestoreScreen(
     var showFrequencyDialog by remember { mutableStateOf(false) }
     var totalEntries by remember { mutableStateOf<Int?>(null) }
 
-    fun readText(uri: Uri): String =
-        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-            ?: error("Could not open file")
+    fun readBytes(uri: Uri): ByteArray =
+        context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("Could not open file")
+
+    fun readText(uri: Uri): String = readBytes(uri).toString(Charsets.UTF_8)
 
     /* ---------------- PICKERS ---------------- */
 
@@ -75,11 +76,11 @@ fun BackupRestoreScreen(
 
         scope.launch {
             try {
-                val text = withContext(Dispatchers.IO) { readText(uri) }
-                when (val parsed = backupViewModel.parse(text)) {
+                val bytes = withContext(Dispatchers.IO) { readBytes(uri) }
+                when (val parsed = backupViewModel.parse(bytes)) {
                     is ParsedBackup.Full -> pendingFullRestore = parsed.backup
                     is ParsedBackup.SingleDiary ->
-                        if (viewModel != null) pendingDiaryRestore = text
+                        if (viewModel != null) pendingDiaryRestore = bytes.toString(Charsets.UTF_8)
                         else snackbarHostState.showSnackbar(
                             "This is a single-diary backup. Open a diary and restore it there."
                         )
@@ -109,19 +110,20 @@ fun BackupRestoreScreen(
         if (uri != null) backupViewModel.chooseFolder(uri)
     }
 
-    var pendingExport by remember { mutableStateOf<String?>(null) }
+    // What to write once the user has picked where to save
+    var pendingExport by remember { mutableStateOf<(suspend (java.io.OutputStream) -> Unit)?>(null) }
 
     fun writeExport(uri: Uri?) {
-        val content = pendingExport
+        val writer = pendingExport
         pendingExport = null
-        if (uri == null || content == null) {
+        if (uri == null || writer == null) {
             onExportFinished() // cancelled
             return
         }
         scope.launch {
             val message = try {
                 withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                    context.contentResolver.openOutputStream(uri)?.use { writer(it) }
                         ?: error("Could not open file")
                 }
                 backupViewModel.recordManualBackup()
@@ -136,12 +138,16 @@ fun BackupRestoreScreen(
         }
     }
 
-    val exportJsonLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
+    val exportZipLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
     ) { writeExport(it) }
 
     val exportMdLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/markdown")
+    ) { writeExport(it) }
+
+    val exportPdfLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
     ) { writeExport(it) }
 
     LaunchedEffect(viewModel) {
@@ -185,13 +191,11 @@ fun BackupRestoreScreen(
             item {
                 SettingsItem(
                     title = "Export all diaries",
-                    subtitle = "Every diary, task and setting in one file",
+                    subtitle = "Every diary, task, photo and setting in one file",
                     onClick = {
-                        scope.launch {
-                            onExportStarted() // keep the lock off while the picker is open
-                            pendingExport = backupViewModel.exportAll()
-                            exportJsonLauncher.launch("kurippidu_backup_${LocalDate.now()}.json")
-                        }
+                        onExportStarted() // keep the lock off while the picker is open
+                        pendingExport = { out -> backupViewModel.exportAllTo(out) }
+                        exportZipLauncher.launch("kurippidu_backup_${LocalDate.now()}.zip")
                     }
                 )
             }
@@ -202,7 +206,7 @@ fun BackupRestoreScreen(
                     onClick = if (isRestoring) null else {
                         {
                             onExportStarted()
-                            restoreLauncher.launch(arrayOf("application/json", "application/octet-stream", "text/plain"))
+                            restoreLauncher.launch(arrayOf("application/zip", "application/json", "application/octet-stream", "text/plain"))
                         }
                     }
                 )
@@ -271,9 +275,21 @@ fun BackupRestoreScreen(
                         onClick = {
                             scope.launch {
                                 onExportStarted()
-                                pendingExport = viewModel.exportAsMarkdown()
+                                val markdown = viewModel.exportAsMarkdown()
+                                pendingExport = { out -> out.write(markdown.toByteArray()) }
                                 exportMdLauncher.launch("kurippidu_${LocalDate.now()}.md")
                             }
+                        }
+                    )
+                }
+                item {
+                    SettingsItem(
+                        title = "Export as PDF",
+                        subtitle = "A printable diary with photos",
+                        onClick = {
+                            onExportStarted()
+                            pendingExport = { out -> viewModel.exportPdf(out) }
+                            exportPdfLauncher.launch("kurippidu_${LocalDate.now()}.pdf")
                         }
                     )
                 }
@@ -357,7 +373,10 @@ fun BackupRestoreScreen(
                 }) { Text("Restore") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingFullRestore = null }) { Text("Cancel") }
+                TextButton(onClick = {
+                    pendingFullRestore = null
+                    scope.launch { backupViewModel.discardUnpacked() }
+                }) { Text("Cancel") }
             }
         )
     }

@@ -21,6 +21,7 @@ import com.aburv.kurippidu.LockMode
 import com.aburv.kurippidu.data.TodoEntity
 import com.aburv.kurippidu.data.TodoType
 import com.aburv.kurippidu.ui.theme.DiaryTheme
+import com.aburv.kurippidu.testutil.tap
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -84,9 +85,10 @@ class ComponentsTest {
             }
         }
 
-        compose.onNodeWithContentDescription("Add Todo").performClick()
-        compose.onNodeWithContentDescription("Add Recurring Task").performClick()
-        compose.onNodeWithContentDescription("Add").performClick()
+        // The toolbar scrolls sideways; click through accessibility so off-screen tools work too
+        compose.onNodeWithContentDescription("Add Todo").tap()
+        compose.onNodeWithContentDescription("Add Recurring Task").tap()
+        compose.onNodeWithContentDescription("Add").tap()
 
         assertEquals(listOf("todo", "recurring", "template"), clicks)
     }

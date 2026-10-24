@@ -3,6 +3,7 @@
 package com.aburv.kurippidu
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -180,6 +181,46 @@ private fun DiaryContent(
     var showWeekly by remember { mutableStateOf(false) }
     var hiddenMemoryDates by rememberSaveable { mutableStateOf(setOf<String>()) }
 
+    var showPhotoSource by remember { mutableStateOf(false) }
+    var viewingPhoto by remember { mutableStateOf<com.aburv.kurippidu.data.AttachmentEntity?>(null) }
+    var cameraFile by remember { mutableStateOf<java.io.File?>(null) }
+    val photoError: (String) -> Unit = { message -> scope.launch { snackbarHostState.showSnackbar(message) } }
+
+    // Pickers and camera open other screens: keep the app lock off meanwhile
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        onExportFinished()
+        uri?.let { viewModel.addPhoto(it, photoError) }
+    }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
+        onExportFinished()
+        val file = cameraFile
+        if (saved && file != null) viewModel.addPhoto(android.net.Uri.fromFile(file), photoError)
+        else file?.delete()
+        cameraFile = null
+    }
+    val voiceLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        onExportFinished()
+        result.data
+            ?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+            ?.let(viewModel::insertAtCursor)
+    }
+    fun startVoice() {
+        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(
+                android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+            )
+            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Speak your entry")
+        try {
+            onExportStarted()
+            voiceLauncher.launch(intent)
+        } catch (e: android.content.ActivityNotFoundException) {
+            onExportFinished()
+            photoError("Speech input isn't available on this phone")
+        }
+    }
+
     val reminderTime by BackupPreferences.reminderTime(context, diaryId).collectAsState(initial = null)
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -265,10 +306,13 @@ private fun DiaryContent(
                                         onAddTodo = { showAddTodo = true },
                                         onAddRecurring = { showRecurringDialog = true },
                                         onTemplates = { showTemplates = true },
-                                        onManageRecurring = { showRecurringManager = true }
+                                        onManageRecurring = { showRecurringManager = true },
+                                        onAddPhoto = { showPhotoSource = true },
+                                        onVoice = ::startVoice,
+                                        onOpenPhoto = { viewingPhoto = it }
                                     )
                                 } else {
-                                    PreviewPage(viewModel)
+                                    PreviewPage(viewModel, onOpenPhoto = { viewingPhoto = it })
                                 }
                             }
                         }
@@ -362,6 +406,37 @@ private fun DiaryContent(
             value = viewModel.weeklySummary()
         }
         WeeklySummarySheet(summary = summary, onDismiss = { showWeekly = false })
+    }
+
+    if (showPhotoSource) {
+        PhotoSourceSheet(
+            onGallery = {
+                showPhotoSource = false
+                onExportStarted()
+                galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onCamera = {
+                showPhotoSource = false
+                val file = java.io.File(context.cacheDir, "camera/photo_${System.currentTimeMillis()}.jpg")
+                    .apply { parentFile?.mkdirs() }
+                cameraFile = file
+                val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+                onExportStarted()
+                cameraLauncher.launch(uri)
+            },
+            onDismiss = { showPhotoSource = false }
+        )
+    }
+
+    viewingPhoto?.let { photo ->
+        PhotoViewer(
+            file = viewModel.photoFile(photo),
+            onDelete = {
+                viewModel.deletePhoto(photo)
+                viewingPhoto = null
+            },
+            onDismiss = { viewingPhoto = null }
+        )
     }
 
     if (showRecurringManager) {
@@ -559,10 +634,11 @@ private fun NeighbourPage(date: LocalDate, viewModel: DiaryViewModel) {
 }
 
 @Composable
-private fun PreviewPage(viewModel: DiaryViewModel) {
+private fun PreviewPage(viewModel: DiaryViewModel, onOpenPhoto: (com.aburv.kurippidu.data.AttachmentEntity) -> Unit) {
     val todos = viewModel.todos ?: emptyList()
     val mood = viewModel.currentMood
-    if (todos.isEmpty() && viewModel.diaryText.text.isBlank() && mood == null) {
+    val photos = viewModel.attachments
+    if (todos.isEmpty() && viewModel.diaryText.text.isBlank() && mood == null && photos.isEmpty()) {
         EmptyDayPlaceholder(modifier = Modifier.fillMaxSize())
         return
     }
@@ -581,7 +657,9 @@ private fun PreviewPage(viewModel: DiaryViewModel) {
         todos.forEach { todo -> TaskRow(todo = todo, onToggle = null, onDelete = null) }
         if (todos.isNotEmpty()) Spacer(Modifier.height(8.dp))
 
-        Text(text = viewModel.diaryText.text, style = diaryTextStyle())
+        PhotoStrip(photos = photos, fileOf = viewModel::photoFile, onOpen = onOpenPhoto)
+
+        RenderedText(viewModel.diaryText.text, onToggleChecklist = viewModel::toggleChecklistLine)
 
         viewModel.lastEdited?.let { edited ->
             Spacer(Modifier.height(16.dp))
@@ -594,6 +672,40 @@ private fun PreviewPage(viewModel: DiaryViewModel) {
     }
 }
 
+/**
+ * Diary text for reading: formatting shown without its markers, "☐ / ☑" lines
+ * as checkboxes you can tick. Plain lines are grouped so they stay on the ruling.
+ */
+@Composable
+private fun RenderedText(text: String, onToggleChecklist: (Int) -> Unit) {
+    val style = diaryTextStyle()
+    val textColor = MaterialTheme.colorScheme.onBackground
+    val tagColor = MaterialTheme.colorScheme.primary
+    val lines = text.split('\n')
+    var i = 0
+    while (i < lines.size) {
+        val line = lines[i]
+        val checked = line.startsWith(CHECKED)
+        if (checked || line.startsWith(UNCHECKED)) {
+            val index = i
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = checked, onCheckedChange = { onToggleChecklist(index) })
+                Text(
+                    renderMarkdown(line.drop(2), textColor, tagColor),
+                    style = style,
+                    textDecoration = if (checked) TextDecoration.LineThrough else null,
+                    color = textColor.copy(alpha = if (checked) 0.6f else 1f)
+                )
+            }
+            i++
+        } else {
+            val start = i
+            while (i < lines.size && !lines[i].startsWith(CHECKED) && !lines[i].startsWith(UNCHECKED)) i++
+            Text(renderMarkdown(lines.subList(start, i).joinToString("\n"), textColor, tagColor), style = style)
+        }
+    }
+}
+
 @Composable
 private fun EditorPage(
     viewModel: DiaryViewModel,
@@ -601,7 +713,10 @@ private fun EditorPage(
     onAddTodo: () -> Unit,
     onAddRecurring: () -> Unit,
     onTemplates: () -> Unit,
-    onManageRecurring: () -> Unit
+    onManageRecurring: () -> Unit,
+    onAddPhoto: () -> Unit,
+    onVoice: () -> Unit,
+    onOpenPhoto: (com.aburv.kurippidu.data.AttachmentEntity) -> Unit
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val textColor = MaterialTheme.colorScheme.onBackground
@@ -613,7 +728,10 @@ private fun EditorPage(
             onFormat = { viewModel.applyFormat(it) },
             onAddTodoClick = onAddTodo,
             onAddRecurringClick = onAddRecurring,
-            onManageRecurringClick = onManageRecurring
+            onManageRecurringClick = onManageRecurring,
+            onChecklist = viewModel::toggleChecklistAtCursor,
+            onAddPhoto = onAddPhoto,
+            onVoice = onVoice
         )
 
         // Info row: word count, last edit, recurring tasks
@@ -651,7 +769,7 @@ private fun EditorPage(
         HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
 
         BasicTextField(
-            visualTransformation = MarkdownVisualTransformation(textColor),
+            visualTransformation = MarkdownVisualTransformation(textColor, MaterialTheme.colorScheme.primary),
             value = viewModel.diaryText,
             onValueChange = viewModel::updateDiaryText,
             modifier = Modifier
@@ -687,6 +805,7 @@ private fun EditorPage(
                         )
                     }
                     if (todos.isNotEmpty()) Spacer(Modifier.height(8.dp))
+                    PhotoStrip(photos = viewModel.attachments, fileOf = viewModel::photoFile, onOpen = onOpenPhoto)
                     inner()
                 }
             }

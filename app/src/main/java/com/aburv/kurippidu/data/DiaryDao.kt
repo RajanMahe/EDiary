@@ -50,7 +50,7 @@ interface DiaryDao {
     /* ---------------- ENTRIES ---------------- */
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(entry: DiaryEntity)
+    suspend fun insert(entry: DiaryEntity): Long
 
     @Update
     suspend fun updateEntry(entry: DiaryEntity)
@@ -104,6 +104,61 @@ interface DiaryDao {
 
     @Query("SELECT * FROM entries WHERE diaryOwnerId = :diaryId AND date >= :from AND date <= :to ORDER BY date")
     suspend fun getEntriesBetween(diaryId: Int, from: String, to: String): List<DiaryEntity>
+
+    /* ---------------- TAGS ---------------- */
+
+    @Query("DELETE FROM entry_tags WHERE entryId = :entryId")
+    suspend fun deleteTagsForEntry(entryId: Int)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertTags(tags: List<EntryTagEntity>)
+
+    @Query("""
+        SELECT entry_tags.tag AS tag, COUNT(*) AS count FROM entry_tags
+        JOIN entries ON entries.id = entry_tags.entryId
+        WHERE entries.diaryOwnerId = :diaryId
+        GROUP BY entry_tags.tag
+        ORDER BY count DESC, entry_tags.tag
+    """)
+    fun observeTags(diaryId: Int): Flow<List<TagCount>>
+
+    @Query("""
+        SELECT entries.* FROM entries
+        JOIN entry_tags ON entry_tags.entryId = entries.id
+        WHERE entries.diaryOwnerId = :diaryId AND entry_tags.tag = :tag
+        AND (content LIKE :query ESCAPE '\' OR date LIKE :query ESCAPE '\')
+        ORDER BY date DESC
+    """)
+    suspend fun searchEntriesWithTag(diaryId: Int, tag: String, query: String): List<DiaryEntity>
+
+    /* ---------------- ATTACHMENTS ---------------- */
+
+    @Insert
+    suspend fun insertAttachment(attachment: AttachmentEntity): Long
+
+    @Delete
+    suspend fun deleteAttachment(attachment: AttachmentEntity)
+
+    @Query("SELECT * FROM attachments WHERE entryId = :entryId ORDER BY createdAt, id")
+    suspend fun getAttachments(entryId: Int): List<AttachmentEntity>
+
+    @Query("""
+        SELECT attachments.* FROM attachments
+        JOIN entries ON entries.id = attachments.entryId
+        WHERE entries.diaryOwnerId = :diaryId AND entries.date = :date
+        ORDER BY attachments.createdAt, attachments.id
+    """)
+    fun observeAttachments(diaryId: Int, date: String): Flow<List<AttachmentEntity>>
+
+    @Query("""
+        SELECT attachments.fileName FROM attachments
+        JOIN entries ON entries.id = attachments.entryId
+        WHERE entries.diaryOwnerId = :diaryId
+    """)
+    suspend fun getAttachmentFilesForDiary(diaryId: Int): List<String>
+
+    @Query("SELECT fileName FROM attachments")
+    suspend fun getAllAttachmentFiles(): List<String>
 
     /* ---------------- TODOS ---------------- */
 

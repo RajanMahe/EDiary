@@ -25,14 +25,13 @@ class AutoBackupRunner(
     suspend fun run(folder: DocumentFile, now: LocalDateTime = LocalDateTime.now()): String {
         check(folder.isDirectory && folder.canWrite()) { "Backup folder is not available" }
 
-        val name = "$PREFIX${now.toLocalDate()}.json"
-        val json = service.createBackupJson(now)
+        val name = "$PREFIX${now.toLocalDate()}.zip"
 
         // One file per day: a second run the same day replaces it
         folder.findFile(name)?.delete()
-        val file = folder.createFile("application/json", name)
+        val file = folder.createFile("application/zip", name)
             ?: error("Could not create $name")
-        context.contentResolver.openOutputStream(file.uri)?.use { it.write(json.toByteArray()) }
+        context.contentResolver.openOutputStream(file.uri)?.use { service.writeBackupZip(it, now) }
             ?: error("Could not write $name")
 
         prune(folder)
@@ -42,8 +41,9 @@ class AutoBackupRunner(
     /** Keeps the newest [KEEP] automatic backups; files the user made are never touched. */
     private fun prune(folder: DocumentFile) {
         folder.listFiles()
-            .filter { it.isFile && it.name.orEmpty().let { n -> n.startsWith(PREFIX) && n.endsWith(".json") } }
-            .sortedByDescending { it.name }
+            // .json from older versions and .zip now; the date in the name sorts them
+            .filter { it.isFile && it.name.orEmpty().let { n -> n.startsWith(PREFIX) && (n.endsWith(".zip") || n.endsWith(".json")) } }
+            .sortedByDescending { it.name.orEmpty().removeSuffix(".zip").removeSuffix(".json") }
             .drop(KEEP)
             .forEach { it.delete() }
     }

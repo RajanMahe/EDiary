@@ -34,6 +34,20 @@ class BackupService(
         return BackupCodec.encode(backup)
     }
 
+    /** Writes a full backup (JSON + photos) as a zip. */
+    suspend fun writeBackupZip(out: java.io.OutputStream, now: LocalDateTime = LocalDateTime.now()) {
+        val json = createBackupJson(now)
+        val backup = (BackupCodec.decode(json) as com.aburv.kurippidu.data.backup.ParsedBackup.Full).backup
+        val photos = backup.diaries.flatMap { d -> d.entries.flatMap { it.attachments } }
+            .distinct()
+            .map { java.io.File(repository.attachmentsDir, it) }
+        BackupArchive.write(out, json, photos)
+    }
+
+    /** Reads a backup file (zip or older JSON), unpacking its photos. */
+    fun readBackup(bytes: ByteArray): com.aburv.kurippidu.data.backup.ParsedBackup =
+        BackupCodec.decode(BackupArchive.read(bytes, repository.attachmentsDir))
+
     /** Restores diaries, entries and tasks, then the settings stored in the file. */
     suspend fun restore(backup: FullBackup): RestoreSummary {
         val summary = repository.restoreFullBackup(backup)

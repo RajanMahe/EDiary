@@ -12,13 +12,18 @@ import com.aburv.kurippidu.data.backup.RestoreSummary
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import java.io.File
 import java.time.LocalDate
 
 /**
  * Single entry point to diary data. ViewModels talk to this, never to the DAO,
  * so multi-step changes run in one transaction and the rules live in one place.
  */
-class DiaryRepository internal constructor(private val db: DiaryDatabase) {
+class DiaryRepository internal constructor(
+    private val db: DiaryDatabase,
+    /** Where photo attachments are stored (files/attachments in the app). */
+    val attachmentsDir: File = File(System.getProperty("java.io.tmpdir"), "kurippidu-attachments")
+) {
 
     private val dao = db.diaryDao()
 
@@ -45,10 +50,14 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
         dao.updateDiary(diary.copy(title = newTitle.trim()))
     }
 
-    // Entries are removed by the CASCADE foreign key; tasks have none, so delete them here
-    suspend fun deleteDiary(diary: DiaryOwnerEntity) = db.withTransaction {
-        dao.deleteTodosForDiary(diary.diaryId)
-        dao.deleteDiary(diary)
+    // Entries and photos rows go by CASCADE; tasks have no foreign key, so delete them here
+    suspend fun deleteDiary(diary: DiaryOwnerEntity) {
+        val files = dao.getAttachmentFilesForDiary(diary.diaryId)
+        db.withTransaction {
+            dao.deleteTodosForDiary(diary.diaryId)
+            dao.deleteDiary(diary)
+        }
+        files.forEach { File(attachmentsDir, it).delete() }
     }
 
     /* ---------------- ENTRIES ---------------- */
@@ -65,13 +74,26 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
     ) {
         val existing = dao.getEntryByDate(diaryId, date.toString())
         if (existing != null) {
-            if (existing.content != content) dao.updateEntry(existing.copy(content = content, updatedAt = updatedAt))
+            if (existing.content != content) {
+                dao.updateEntry(existing.copy(content = content, updatedAt = updatedAt))
+                updateTags(existing.id, content)
+            }
         } else {
-            dao.insert(
+            val id = dao.insert(
                 DiaryEntity(diaryOwnerId = diaryId, date = date.toString(), content = content, updatedAt = updatedAt)
-            )
+            ).toInt()
+            updateTags(id, content)
         }
     }
+
+    /** Keeps the #tag lookup in step with the entry's text. */
+    private suspend fun updateTags(entryId: Int, content: String) {
+        dao.deleteTagsForEntry(entryId)
+        val tags = Tags.extract(content)
+        if (tags.isNotEmpty()) dao.insertTags(tags.map { EntryTagEntity(entryId, it) })
+    }
+
+    fun observeTags(diaryId: Int): Flow<List<TagCount>> = dao.observeTags(diaryId)
 
     suspend fun getAllEntries(diaryId: Int): List<DiaryEntity> = dao.getAllEntries(diaryId)
 
@@ -84,23 +106,56 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
             dates.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
         }
 
-    suspend fun search(diaryId: Int, query: String): List<DiaryEntity> {
+    /** Entries matching [query] (text or date); with [tag], only entries carrying that #tag. */
+    suspend fun search(diaryId: Int, query: String, tag: String? = null): List<DiaryEntity> {
         // Escape LIKE wildcards so "%" or "_" typed by the user match literally
         val escaped = query
             .replace("\\", "\\\\")
             .replace("%", "\\%")
             .replace("_", "\\_")
-        return dao.searchEntries(diaryId, "%$escaped%")
+        return if (tag == null) dao.searchEntries(diaryId, "%$escaped%")
+        else dao.searchEntriesWithTag(diaryId, tag, "%$escaped%")
     }
+
 
     /** Writes all entries in one transaction: either every entry lands or none do. */
     suspend fun replaceEntries(
         diaryId: Int,
         entries: List<ParsedDiary>,
         clearFirst: Boolean
-    ) = db.withTransaction {
-        if (clearFirst) dao.clearDiary(diaryId)
-        entries.forEach { saveEntry(diaryId, it.date, it.content) }
+    ) {
+        db.withTransaction {
+            if (clearFirst) dao.clearDiary(diaryId)
+            entries.forEach { saveEntry(diaryId, it.date, it.content) }
+        }
+        if (clearFirst) deleteUnusedPhotoFiles()
+    }
+
+    /* ---------------- PHOTOS ---------------- */
+
+    fun attachmentFile(attachment: AttachmentEntity): File = File(attachmentsDir, attachment.fileName)
+
+    suspend fun attachmentsOf(entry: DiaryEntity): List<AttachmentEntity> = dao.getAttachments(entry.id)
+
+    fun observeAttachments(diaryId: Int, date: LocalDate): Flow<List<AttachmentEntity>> =
+        dao.observeAttachments(diaryId, date.toString())
+
+    /** Adds a photo (already copied into [attachmentsDir]) to the day, creating the entry if needed. */
+    suspend fun addAttachment(diaryId: Int, date: LocalDate, fileName: String) = db.withTransaction {
+        if (dao.getEntryByDate(diaryId, date.toString()) == null) saveEntry(diaryId, date, "")
+        val entry = dao.getEntryByDate(diaryId, date.toString())!!
+        dao.insertAttachment(AttachmentEntity(entryId = entry.id, fileName = fileName))
+    }
+
+    suspend fun deleteAttachment(attachment: AttachmentEntity) {
+        dao.deleteAttachment(attachment)
+        attachmentFile(attachment).delete()
+    }
+
+    /** Removes photo files no entry points to any more (after a diary is cleared). */
+    suspend fun deleteUnusedPhotoFiles() {
+        val used = dao.getAllAttachmentFiles().toSet()
+        attachmentsDir.listFiles()?.filter { it.name !in used }?.forEach { it.delete() }
     }
 
     /* ---------------- TODOS ---------------- */
@@ -209,6 +264,12 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
         }
     }
 
+    /** Sets [mood], or clears it if it's already the day's mood (tap again to clear). */
+    suspend fun toggleMood(diaryId: Int, date: LocalDate, mood: Mood) = db.withTransaction {
+        val current = Mood.fromKey(dao.getEntryByDate(diaryId, date.toString())?.mood)
+        setMood(diaryId, date, if (current == mood) null else mood)
+    }
+
     fun observeMoods(diaryId: Int): Flow<Map<LocalDate, Mood>> =
         dao.observeMoods(diaryId).map { rows ->
             rows.mapNotNull { row ->
@@ -252,7 +313,13 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
                         title = diary.title,
                         createdAt = diary.createdAt,
                         entries = dao.getAllEntries(diary.diaryId).map { entry ->
-                            BackupEntry(date = entry.date, content = entry.content, mood = entry.mood, updatedAt = entry.updatedAt)
+                            BackupEntry(
+                                date = entry.date,
+                                content = entry.content,
+                                mood = entry.mood,
+                                updatedAt = entry.updatedAt,
+                                attachments = dao.getAttachments(entry.id).map { it.fileName }
+                            )
                         },
                         todos = dao.getAllTodos(diary.diaryId).map { todo ->
                             BackupTodo(
@@ -299,6 +366,14 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
                 val date = LocalDate.parse(entry.date)
                 saveEntry(diaryId, date, entry.content, updatedAt = entry.updatedAt ?: System.currentTimeMillis())
                 Mood.fromKey(entry.mood)?.let { setMood(diaryId, date, it) }
+                // Photos: their files were unpacked into attachmentsDir before this runs
+                if (entry.attachments.isNotEmpty()) {
+                    val saved = dao.getEntryByDate(diaryId, entry.date)!!
+                    val already = dao.getAttachments(saved.id).map { it.fileName }.toSet()
+                    entry.attachments
+                        .filter { it !in already && File(attachmentsDir, it).exists() }
+                        .forEach { dao.insertAttachment(AttachmentEntity(entryId = saved.id, fileName = it)) }
+                }
                 entries++
             }
 
@@ -358,7 +433,10 @@ class DiaryRepository internal constructor(private val db: DiaryDatabase) {
 
         fun get(context: Context): DiaryRepository =
             INSTANCE ?: synchronized(this) {
-                INSTANCE ?: DiaryRepository(DiaryDatabase.getDatabase(context)).also { INSTANCE = it }
+                INSTANCE ?: DiaryRepository(
+                    DiaryDatabase.getDatabase(context),
+                    ImageImporter.attachmentsDir(context.applicationContext)
+                ).also { INSTANCE = it }
             }
 
         /** Tests only: make get() return [repository] (an in-memory DB), or reset with null. */

@@ -60,8 +60,9 @@ class AutoBackupTest {
     fun `writes a dated backup that restores`() = runBlocking {
         val name = runner().run(folder(), at(10))
 
-        assertEquals("kurippidu_auto_2026-01-10.json", name)
-        val parsed = BackupCodec.decode(File(dir, name).readText()) as ParsedBackup.Full
+        assertEquals("kurippidu_auto_2026-01-10.zip", name)
+        val json = BackupArchive.read(File(dir, name).readBytes(), File(dir, "unpacked"))
+        val parsed = BackupCodec.decode(json) as ParsedBackup.Full
         assertEquals("Hello", parsed.backup.diaries.single().entries.single().content)
     }
 
@@ -69,18 +70,20 @@ class AutoBackupTest {
     fun `a second run the same day replaces that day's file`() = runBlocking {
         runner().run(folder(), at(10))
         runner().run(folder(), at(10).plusHours(1))
-        assertEquals(listOf("kurippidu_auto_2026-01-10.json"), dir.list()!!.toList())
+        assertEquals(listOf("kurippidu_auto_2026-01-10.zip"), dir.list()!!.toList())
     }
 
     @Test
     fun `keeps the newest 7 and never touches other files`() = runBlocking {
         File(dir, "my_notes.txt").writeText("mine")
         File(dir, "kurippidu_backup_2025-12-01.json").writeText("manual")
+        // Older app versions wrote .json auto backups; they're pruned with the new .zip ones
+        File(dir, "kurippidu_auto_2025-12-31.json").writeText("old auto")
 
         (1..10).forEach { runner().run(folder(), at(it)) }
 
         val autos = dir.list()!!.filter { it.startsWith("kurippidu_auto_") }.sorted()
-        assertEquals((4..10).map { "kurippidu_auto_2026-01-%02d.json".format(it) }, autos)
+        assertEquals((4..10).map { "kurippidu_auto_2026-01-%02d.zip".format(it) }, autos)
         assertTrue(File(dir, "my_notes.txt").exists())
         assertTrue(File(dir, "kurippidu_backup_2025-12-01.json").exists())
     }

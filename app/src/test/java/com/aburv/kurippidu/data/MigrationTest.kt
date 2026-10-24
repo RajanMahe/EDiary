@@ -113,4 +113,58 @@ class MigrationTest {
         }
         db.close()
     }
+
+    /** Creates the exact schema of [version] from its exported schema file. */
+    private fun createFromSchema(version: Int, fill: (android.database.sqlite.SQLiteDatabase) -> Unit) {
+        val schema = JSONObject(
+            File("schemas/com.aburv.kurippidu.data.DiaryDatabase/$version.json").readText()
+        ).getJSONObject("database")
+        context.openOrCreateDatabase(dbName, Context.MODE_PRIVATE, null).use { raw ->
+            val entities = schema.getJSONArray("entities")
+            for (i in 0 until entities.length()) {
+                val entity = entities.getJSONObject(i)
+                val table = entity.getString("tableName")
+                raw.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", table))
+                val indices = entity.optJSONArray("indices") ?: continue
+                for (j in 0 until indices.length()) {
+                    raw.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", table))
+                }
+            }
+            fill(raw)
+            raw.version = version
+        }
+    }
+
+    @Test
+    fun `v10 entries get their tags in v11`() {
+        createFromSchema(10) { raw ->
+            raw.execSQL("INSERT INTO diaries (diaryId, title, createdAt) VALUES (1, 'D', 0)")
+            raw.execSQL("INSERT INTO entries (id, diaryOwnerId, date, content) VALUES (1, 1, '2026-01-05', 'Busy #Work day #family')")
+            raw.execSQL("INSERT INTO entries (id, diaryOwnerId, date, content) VALUES (2, 1, '2026-01-06', 'No tags')")
+        }
+
+        val db = openWithRoom()
+        runBlocking {
+            val tags = db.diaryDao().observeTags(1).first()
+            assertEquals(listOf(TagCount("family", 1), TagCount("work", 1)), tags.sortedBy { it.tag })
+        }
+        db.close()
+    }
+
+    @Test
+    fun `v8 database upgrades through mood, photos and tags`() {
+        createFromSchema(8) { raw ->
+            raw.execSQL("INSERT INTO diaries (diaryId, title, createdAt) VALUES (1, 'D', 0)")
+            raw.execSQL("INSERT INTO entries (id, diaryOwnerId, date, content, updatedAt) VALUES (1, 1, '2026-01-05', 'Kept #safe', 123)")
+        }
+        val db = openWithRoom()
+        runBlocking {
+            val entry = db.diaryDao().getEntryByDate(1, "2026-01-05")!!
+            assertEquals("Kept #safe", entry.content)
+            assertEquals(123L, entry.updatedAt)
+            assertEquals(null, entry.mood)
+            assertEquals(listOf(TagCount("safe", 1)), db.diaryDao().observeTags(1).first())
+        }
+        db.close()
+    }
 }

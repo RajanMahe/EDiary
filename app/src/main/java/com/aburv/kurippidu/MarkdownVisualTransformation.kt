@@ -1,45 +1,66 @@
 package com.aburv.kurippidu
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.graphics.Color
+import com.aburv.kurippidu.data.Tags
 
+/** Editor styling: markers stay (faded) so the text length never changes. */
 class MarkdownVisualTransformation(
-    private val textColor: Color = Color.Unspecified
+    private val textColor: Color = Color.Unspecified,
+    private val tagColor: Color = Color.Unspecified
 ) : VisualTransformation {
+
     override fun filter(text: AnnotatedString): TransformedText {
         val builder = AnnotatedString.Builder()
-        parseMarkdown(text.text, builder, textColor)
+        parseMarkdown(text.text, builder, textColor, keepMarkers = true)
+        styleTags(builder, text.text, tagColor)
 
         // Markers are kept (only faded), so the styled text has exactly the
         // same length as the typed text and Identity mapping is valid.
-        return TransformedText(
-            builder.toAnnotatedString(),
-            OffsetMapping.Identity
-        )
+        return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
+    }
+}
+
+/** Read-only styling: markers are hidden, so the page reads like a printed diary. */
+fun renderMarkdown(text: String, textColor: Color = Color.Unspecified, tagColor: Color = Color.Unspecified): AnnotatedString {
+    val builder = AnnotatedString.Builder()
+    parseMarkdown(text, builder, textColor, keepMarkers = false)
+    val plain = builder.toAnnotatedString()
+    // Tags are found on the text as shown (markers removed)
+    val withTags = AnnotatedString.Builder(plain)
+    styleTags(withTags, plain.text, tagColor)
+    return withTags.toAnnotatedString()
+}
+
+private fun styleTags(builder: AnnotatedString.Builder, text: String, tagColor: Color) {
+    if (tagColor == Color.Unspecified) return
+    Tags.ranges(text).forEach { range ->
+        builder.addStyle(SpanStyle(color = tagColor, fontWeight = FontWeight.SemiBold), range.first, range.last + 1)
     }
 }
 
 private fun parseMarkdown(
     text: String,
     builder: AnnotatedString.Builder,
-    textColor: Color
+    textColor: Color,
+    keepMarkers: Boolean
 ) {
     val markerColor =
         if (textColor == Color.Unspecified) Color.Gray else textColor.copy(alpha = 0.3f)
     val markerStyle = SpanStyle(color = markerColor)
 
     fun span(marker: String, inner: String, style: SpanStyle) {
-        builder.withStyle(markerStyle) { append(marker) }
+        if (keepMarkers) builder.withStyle(markerStyle) { append(marker) }
         builder.withStyle(style) { append(inner) }
-        builder.withStyle(markerStyle) { append(marker) }
+        if (keepMarkers) builder.withStyle(markerStyle) { append(marker) }
     }
 
     var i = 0

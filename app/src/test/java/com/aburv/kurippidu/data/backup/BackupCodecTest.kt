@@ -30,7 +30,7 @@ class BackupCodecTest {
     @Test
     fun `full backup survives a round trip`() {
         val text = BackupCodec.encode(sample)
-        assertTrue(text.contains("\"version\": 2"))
+        assertTrue(text.contains("\"version\": 3"))
         assertEquals(ParsedBackup.Full(sample), BackupCodec.decode(text))
     }
 

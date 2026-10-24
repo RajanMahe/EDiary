@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
@@ -82,11 +83,27 @@ fun SearchSheet(
                 )
             )
 
+            // #tags in this diary: tap to show only entries with that tag
+            if (viewModel.tags.isNotEmpty()) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    items(viewModel.tags) { tag ->
+                        FilterChip(
+                            selected = tag.tag == viewModel.selectedTag,
+                            onClick = { viewModel.onTagSelected(tag.tag) },
+                            label = { Text("#${tag.tag} (${tag.count})") }
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
 
             val resultDateFormatter = remember { DateTimeFormatter.ofPattern("d MMM yyyy") }
 
-            if (viewModel.searchQuery.isNotBlank() && viewModel.searchResults.isEmpty()) {
+            if ((viewModel.searchQuery.isNotBlank() || viewModel.selectedTag != null) && viewModel.searchResults.isEmpty()) {
                 Text(
                     text = "No results",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

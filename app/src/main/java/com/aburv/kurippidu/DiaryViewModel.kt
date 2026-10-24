@@ -12,6 +12,10 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.time.LocalDate
 
+const val UNCHECKED = "☐ "
+const val CHECKED = "☑ "
+private val CHECKLIST_PREFIXES = listOf(UNCHECKED, CHECKED)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = DiaryRepository.get(application)
@@ -77,6 +81,10 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     var memories by mutableStateOf<List<DiaryEntity>>(emptyList())
         private set
 
+    /** Photos on the open day. */
+    var attachments by mutableStateOf<List<AttachmentEntity>>(emptyList())
+        private set
+
     /** Per recurring task id: scheduled days in a row it was ticked. */
     var taskStreaks by mutableStateOf<Map<Int, Int>>(emptyMap())
         private set
@@ -100,6 +108,16 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
             activeDiaryFlow.filterNotNull()
                 .flatMapLatest { repository.observeMoods(it) }
                 .collect { moods = it }
+        }
+        viewModelScope.launch {
+            combine(activeDiaryFlow.filterNotNull(), todoDateFlow) { id, date -> id to date }
+                .flatMapLatest { (id, date) -> repository.observeAttachments(id, date) }
+                .collect { attachments = it }
+        }
+        viewModelScope.launch {
+            activeDiaryFlow.filterNotNull()
+                .flatMapLatest { repository.observeTags(it) }
+                .collect { tags = it }
         }
         viewModelScope.launch {
             // flatMapLatest drops the previous day's query, so fast date
@@ -152,8 +170,7 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     /** Taps the same mood again to clear it. */
     fun setMood(mood: Mood) {
         val date = currentDate
-        val newMood = if (moods[date] == mood) null else mood
-        viewModelScope.launch { repository.setMood(activeDiaryId, date, newMood) }
+        viewModelScope.launch { repository.toggleMood(activeDiaryId, date, mood) }
     }
 
     suspend fun weeklySummary(today: LocalDate = LocalDate.now()) = repository.weeklySummary(activeDiaryId, today)
@@ -277,12 +294,39 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     var searchResults by mutableStateOf<List<DiaryEntity>>(emptyList())
         private set
 
+    /** Tags used in this diary, most used first. */
+    var tags by mutableStateOf<List<TagCount>>(emptyList())
+        private set
+
+    /** Search only entries with this #tag (null = all). */
+    var selectedTag by mutableStateOf<String?>(null)
+        private set
+
     private var searchJob: Job? = null
+
+    fun onTagSelected(tag: String?) {
+        selectedTag = if (tag == selectedTag) null else tag
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch { runSearch(searchQuery) }
+    }
+
+    private suspend fun runSearch(query: String) {
+        searchResults = when {
+            selectedTag != null -> repository.search(activeDiaryId, query.trim(), selectedTag)
+            query.isBlank() -> emptyList()
+            else -> repository.search(activeDiaryId, query)
+        }
+    }
 
     fun onSearchQueryChanged(query: String) {
         searchQuery = query
 
         searchJob?.cancel()
+        if (query.isBlank() && selectedTag != null) {
+            searchJob = viewModelScope.launch { runSearch(query) }
+            viewModelScope.launch { BackupPreferences.setLastSearch(getApplication(), activeDiaryId, "") }
+            return
+        }
         if (query.isBlank()) {
             searchResults = emptyList()
             // Separate job: closing the sheet right after clearing must not undo the "forget"
@@ -292,7 +336,7 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         searchJob = viewModelScope.launch {
             delay(250) // wait for typing to pause
             BackupPreferences.setLastSearch(getApplication(), activeDiaryId, query)
-            searchResults = repository.search(activeDiaryId, query)
+            runSearch(query)
         }
     }
 
@@ -312,6 +356,7 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     fun clearSearch() {
         searchJob?.cancel()
         searchQuery = ""
+        selectedTag = null
         searchResults = emptyList()
     }
 
@@ -341,6 +386,20 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
                 append("\n\n---\n\n")
             }
         }
+    }
+
+    /** Writes this diary as a printable PDF. @return number of pages */
+    suspend fun exportPdf(out: java.io.OutputStream): Int = withContext(Dispatchers.IO) {
+        val title = repository.getDiary(activeDiaryId)?.title ?: "My Diary"
+        val days = repository.getAllEntries(activeDiaryId)
+            .mapNotNull { entry ->
+                val date = runCatching { LocalDate.parse(entry.date) }.getOrNull() ?: return@mapNotNull null
+                val photos = repository.attachmentsOf(entry).map(repository::attachmentFile)
+                val mood = Mood.fromKey(entry.mood)
+                if (entry.content.isBlank() && photos.isEmpty() && mood == null) return@mapNotNull null
+                PdfDay(date, mood?.let { "${it.emoji} Feeling ${it.label.lowercase()}" }, entry.content, photos)
+            }
+        DiaryPdf.write(out, title, days)
     }
 
     /* ---------------- IMPORT TEXT ---------------- */
@@ -418,6 +477,75 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         saveState = SaveState.DIRTY
         scheduleAutoSave()
     }
+
+    /* ---------------- CHECKLISTS ---------------- */
+
+    /** Toolbar: makes the cursor's line a checklist item, or a normal line again. */
+    fun toggleChecklistAtCursor() {
+        val text = diaryText.text
+        val cursor = diaryText.selection.min
+        val lineStart = text.lastIndexOf('\n', (cursor - 1).coerceAtLeast(0)).let { if (cursor == 0 || it < 0) 0 else it + 1 }
+        val line = text.substring(lineStart)
+        val prefix = CHECKLIST_PREFIXES.firstOrNull { line.startsWith(it) }
+        val (newText, newCursor) = if (prefix != null) {
+            text.removeRange(lineStart, lineStart + prefix.length) to (cursor - prefix.length).coerceAtLeast(lineStart)
+        } else {
+            (text.substring(0, lineStart) + UNCHECKED + text.substring(lineStart)) to cursor + UNCHECKED.length
+        }
+        diaryText = TextFieldValue(newText, selection = TextRange(newCursor))
+        saveState = SaveState.DIRTY
+        scheduleAutoSave()
+    }
+
+    /** Ticks or unticks a checklist line (works on read-only days too) and saves at once. */
+    fun toggleChecklistLine(lineIndex: Int) {
+        val lines = diaryText.text.split('\n').toMutableList()
+        val line = lines.getOrNull(lineIndex) ?: return
+        lines[lineIndex] = when {
+            line.startsWith(UNCHECKED) -> CHECKED + line.removePrefix(UNCHECKED)
+            line.startsWith(CHECKED) -> UNCHECKED + line.removePrefix(CHECKED)
+            else -> return
+        }
+        diaryText = diaryText.copy(text = lines.joinToString("\n"))
+        saveState = SaveState.DIRTY
+        editCount++
+        saveCurrentDiary()
+    }
+
+    /** Inserts text (e.g. from speech) at the cursor, with a space if needed. */
+    fun insertAtCursor(spoken: String) {
+        if (spoken.isBlank()) return
+        val text = diaryText.text
+        val at = diaryText.selection.max
+        val before = text.substring(0, at)
+        val insert = (if (before.isNotEmpty() && !before.last().isWhitespace()) " " else "") + spoken.trim()
+        diaryText = TextFieldValue(before + insert + text.substring(at), selection = TextRange(at + insert.length))
+        saveState = SaveState.DIRTY
+        scheduleAutoSave()
+    }
+
+    /* ---------------- PHOTOS ---------------- */
+
+    /** Copies the picked photo into the app and adds it to the open day. */
+    fun addPhoto(uri: android.net.Uri, onError: (String) -> Unit = {}) {
+        val date = currentDate
+        viewModelScope.launch {
+            try {
+                val name = withContext(Dispatchers.IO) {
+                    ImageImporter(getApplication(), repository.attachmentsDir).import(uri)
+                }
+                repository.addAttachment(activeDiaryId, date, name)
+            } catch (e: Exception) {
+                onError("Couldn't add that photo")
+            }
+        }
+    }
+
+    fun deletePhoto(attachment: AttachmentEntity) {
+        viewModelScope.launch { repository.deleteAttachment(attachment) }
+    }
+
+    fun photoFile(attachment: AttachmentEntity) = repository.attachmentFile(attachment)
 
     /* ---------------- TEMPLATE INSERT ---------------- */
 
