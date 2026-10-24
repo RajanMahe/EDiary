@@ -13,7 +13,6 @@ import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiaryViewModel(application: Application) : AndroidViewModel(application) {
-
     private val repository = DiaryRepository.get(application)
 
     /* ---------------- ACTIVE DIARY ---------------- */

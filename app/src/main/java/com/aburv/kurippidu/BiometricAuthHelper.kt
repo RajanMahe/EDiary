@@ -5,13 +5,11 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 
-
 class BiometricAuthHelper(
     private val activity: FragmentActivity,
     private val onSuccess: () -> Unit,
     private val onError: () -> Unit
 ) {
-
     fun authenticate() {
         val executor = ContextCompat.getMainExecutor(activity)
 
@@ -19,7 +17,6 @@ class BiometricAuthHelper(
             activity,
             executor,
             object : BiometricPrompt.AuthenticationCallback() {
-
                 override fun onAuthenticationSucceeded(
                     result: BiometricPrompt.AuthenticationResult
                 ) {
@@ -51,4 +48,3 @@ class BiometricAuthHelper(
         prompt.authenticate(promptInfo)
     }
 }
-

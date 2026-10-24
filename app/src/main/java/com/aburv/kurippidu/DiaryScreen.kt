@@ -1,76 +1,67 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 
-
-
-
 package com.aburv.kurippidu
 
-import com.aburv.kurippidu.CalendarMonthView
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.graphicsLayer
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.filled.DateRange
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.res.painterResource
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.runtime.saveable.rememberSaveable
-import com.aburv.kurippidu.DiaryViewModel.BackupEvent
-import androidx.fragment.app.FragmentActivity
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.*
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.runtime.*
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import com.aburv.kurippidu.R
-import java.time.YearMonth
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.aburv.kurippidu.data.TodoEntity
-import com.aburv.kurippidu.data.TodoType
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aburv.kurippidu.CalendarMonthView
+import com.aburv.kurippidu.DiaryViewModel.BackupEvent
+import com.aburv.kurippidu.R
+import com.aburv.kurippidu.data.TodoEntity
+import com.aburv.kurippidu.data.TodoType
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,10 +74,6 @@ fun DiaryScreen(
     themeMode: ThemeMode
 
 ) {
-
-
-
-
     val diaryViewModel: DiaryViewModel = viewModel()
 
     // Save pending edits as soon as the app goes to the background
@@ -101,7 +88,6 @@ fun DiaryScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-
 // This must fire first — gates all DB access behind the correct diary ID
     LaunchedEffect(diaryId) {
         diaryViewModel.setActiveDiary(diaryId)
@@ -109,35 +95,16 @@ fun DiaryScreen(
 
     /* ---------------- Restore Backup---------------- */
 
-
-
-
-
-
-
-
-
-
     val editorScrollState = rememberScrollState()
-
 
     var pendingImportText by remember { mutableStateOf<String?>(null) }
     var pendingImportCount by remember { mutableStateOf(0) }
     var showBackupScreen by remember { mutableStateOf(false) }
     var isRestoreInProgress by rememberSaveable { mutableStateOf(false) }
 
-
-
-
     /* ---------------- Back-Up ---------------- */
 
-
-
-
-
-
     var showExportMenu by remember { mutableStateOf(false) }
-
 
     /* ---------------- SNACKBAR ---------------- */
 
@@ -145,15 +112,9 @@ fun DiaryScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-
     /* ---------------- DATE STATE ---------------- */
 
     val iconColor = MaterialTheme.colorScheme.onSurface
-
-
-
-
-
 
     var selectedDate by rememberSaveable { mutableStateOf<LocalDate?>(null) }
 
@@ -173,14 +134,7 @@ fun DiaryScreen(
         }
     }
 
-
     val currentDate = selectedDate ?: LocalDate.now()
-
-
-
-
-
-
 
     var showCalendarPicker by remember { mutableStateOf(false) }
 
@@ -194,15 +148,9 @@ fun DiaryScreen(
     val isToday = currentDate == LocalDate.now()
     val showEditor = isToday || diaryViewModel.isEditMode
 
-
-
     val isEmptyEntry = diaryViewModel.diaryText.text.isBlank()
     val todosEmpty = diaryViewModel.todos?.isEmpty() ?: true
     val showPlaceholder = !showEditor && isEmptyEntry && todosEmpty
-
-
-
-
 
     /*-------------Dairy Template-------------- */
 
@@ -212,19 +160,12 @@ fun DiaryScreen(
         DiaryTemplate("Spent", "💸")
     )
 
-
-
     /* ---------------- DIARY TABS STATE ---------------- */
 
 // ✅ LOAD diary WHEN date changes
 
-
-
-
-
     LaunchedEffect(selectedDate) {
         selectedDate?.let { date ->
-
 
             diaryViewModel.saveCurrentDiary()
 
@@ -240,7 +181,6 @@ fun DiaryScreen(
         }
     }
 
-
     var showSearch by remember { mutableStateOf(false) }
     val previewScrollState = rememberScrollState()
 
@@ -255,25 +195,20 @@ fun DiaryScreen(
 
     var showRecurringManager by remember { mutableStateOf(false) }
 
-
     /* ---------------- ANIMATION ---------------- */
     var isAnimating by remember { mutableStateOf(false) }
 
     val slideOffsetX = remember { Animatable(0f) }
 //    val screenWidth = 400f // safe constant for now
 
-
     val screenWidth = with(LocalDensity.current) {
         LocalConfiguration.current.screenWidthDp.dp.toPx()
     }
 
-
     fun animateToDate(newDate: LocalDate, direction: Int) {
-
         if (isAnimating) return  // 🚫 block re-entry
 
         scope.launch {
-
             isAnimating = true
 
             // slide current page out
@@ -326,14 +261,6 @@ fun DiaryScreen(
         }
     }
 
-
-
-
-
-
-
-
-
     /* ---------------- theme Rulled line for unruled background ---------------- */
 
     val isDark = isSystemInDarkTheme()
@@ -356,14 +283,6 @@ fun DiaryScreen(
 
     val onBackgroundColor = MaterialTheme.colorScheme.onBackground
 
-
-
-
-
-
-
-
-
     /* ---------------- UI ---------------- */
 
     Scaffold(
@@ -384,7 +303,6 @@ fun DiaryScreen(
                     containerColor = MaterialTheme.colorScheme.primary
                 ),
 
-
                 navigationIcon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) {
@@ -403,7 +321,6 @@ fun DiaryScreen(
                 },
 
                 title = {
-
                 },
 
                 actions = {
@@ -459,7 +376,6 @@ fun DiaryScreen(
                         )
                     }
 
-
                     DropdownMenu(
                         expanded = showExportMenu,
                         onDismissRequest = { showExportMenu = false },
@@ -467,7 +383,6 @@ fun DiaryScreen(
                                 .width(220.dp)
 
                     ) {
-
                         AppLockToggle(
                             currentMode = lockMode,
                             onEnableRequested = {
@@ -520,7 +435,6 @@ fun DiaryScreen(
                             }
                         )
 
-
                         DropdownMenuItem(
                             text = { Text("Backup & Restore") },
                             onClick = {
@@ -537,115 +451,34 @@ fun DiaryScreen(
 
         // ✅ TODO SECTION
 
-
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
         )
 
-
         {
-
-//            // ✅ ADD TODO INPUT
-//            Row(
-//                modifier = Modifier
-//                    .fillMaxWidth()
-//                    .padding(8.dp),
-//                verticalAlignment = Alignment.CenterVertically
-//            ) {
-//
-//                TextField(
-//                    value = newTodoText,
-//                    onValueChange = { newTodoText = it },
-//                    modifier = Modifier.weight(1f),
-//                    placeholder = { Text("Add a task...") }
-//                )
-//
-//                Spacer(modifier = Modifier.width(8.dp))
-//
-//                IconButton(
-//                    onClick = {
-//                        if (newTodoText.isNotBlank()) {
-//                            diaryViewModel.addTodo(newTodoText, currentDate)
-//                            newTodoText = ""
-//                        }
-//                    }
-//                ) {
-//                    Icon(Icons.Default.Add, contentDescription = "Add Todo")
-//                }
-//            }
-
-
-
-
-            /* -------- DATE ROW (below blue bar) -------- */
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-
-            ) {
-                Spacer(Modifier.weight(1f))
-
-                Text("<<",Modifier.clickable { animateToDate(currentDate.plusDays(-2), +1) },color = iconColor)
-                Spacer(Modifier.width(12.dp))
-                Text("<", Modifier.clickable { animateToDate(currentDate.plusDays(-1), +1) },color = iconColor)
-
-                Spacer(Modifier.width(24.dp))
-
-                Text(
-                    text = dateText,
-                    modifier = Modifier.clickable { showCalendarPicker = true },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = iconColor
-                )
-
-                Spacer(Modifier.width(24.dp))
-
-                Text(">", Modifier.clickable { animateToDate(currentDate.plusDays(1)
-                    , -1) },color = iconColor)
-                Spacer(Modifier.width(12.dp))
-                Text(">>", Modifier.clickable { animateToDate(currentDate.plusDays(2)
-                    , -1) },color = iconColor)
-
-                Spacer(Modifier.weight(1f))
-
-                Icon(
-                    imageVector = Icons.Default.DateRange,
-                    contentDescription = "Go to Today",
-
-                    modifier = Modifier.clickable {
-                        val today = LocalDate.now()
-                        if (currentDate != today) {
-                            // ✅ direction: if we're in the past, today is in the future → swipe left (-1)
-                            //               if we're in the future, today is in the past → swipe right (+1)
-                            val direction = if (currentDate.isBefore(today)) -1 else 1
-                            animateToDate(today, direction)
-                        }
-                    },
-
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(Modifier.width(24.dp))
-
-            }
-
+            DateNavigationRow(
+                dateText = dateText,
+                color = iconColor,
+                onMoveDays = { days ->
+                    // Going back slides the page right (+1), forward slides it left (-1)
+                    animateToDate(currentDate.plusDays(days.toLong()), if (days < 0) 1 else -1)
+                },
+                onDateClick = { showCalendarPicker = true },
+                onTodayClick = {
+                    val today = LocalDate.now()
+                    if (currentDate != today) {
+                        val direction = if (currentDate.isBefore(today)) -1 else 1
+                        animateToDate(today, direction)
+                    }
+                }
+            )
 
             Divider(
                 color = MaterialTheme.colorScheme.primary,
-                thickness = 1.dp
+                thickness = 2.dp
             )
-
-
-            Divider(
-                color = MaterialTheme.colorScheme.primary,
-                thickness = 1.dp
-            )
-
 
 // --- Editor Toolbar ---
 
@@ -653,9 +486,6 @@ fun DiaryScreen(
                 modifier = Modifier
                     .weight(1f)
                     .pointerInput(selectedDate, showEditor,isAnimating) {
-
-
-
                         if (!showEditor && !isAnimating) {
                             var totalDrag = 0f
 
@@ -700,37 +530,16 @@ fun DiaryScreen(
                                     }
                                     totalDrag = 0f
                                 },
-//                                onDragCancel = {
-//                                    scope.launch { slideOffsetX.animateTo(0f) }
-//                                    totalDrag = 0f
-//                                }
 
                             )
-
-
-
-
-
-
                         }
-
-
-
-
                     }
-
-
 
             )
 
-
             {
-
-
-
                 // ---------- PAGE STACK (Google Photos style) ----------
                 Box(modifier = Modifier.fillMaxSize()) {
-
                     // ◀ PREVIOUS DAY (already loaded, blurred)
                     pageStack[-1]?.let { page ->
                         DiaryPage(
@@ -746,10 +555,7 @@ fun DiaryScreen(
                                 }
                                 .blur(8.dp),
 
-
                             onDeleteTodo = { diaryViewModel.deleteTodo(it) }
-
-
 
                         )
                     }
@@ -758,14 +564,12 @@ fun DiaryScreen(
                     pageStack[0]?.let { page ->
 
                         if (showEditor) {
-
                             // ✅ EDITOR — NO animation, NO graphicsLayer
                             Column(
                                 modifier = Modifier.fillMaxSize()
                                     .fillMaxSize()
                                     .imePadding()
                             ) {
-
                                 EditorToolbar(
                                     enabled = true,
                                     onAddType = { showTypeDialog = true },
@@ -775,16 +579,7 @@ fun DiaryScreen(
                                     onManageRecurringClick = { showRecurringManager = true }
                                 )
 
-
-
-
-
-
-
-
-
                                 Divider(color = MaterialTheme.colorScheme.primary, thickness = 1.dp)
-
 
                                 val keyboardController = LocalSoftwareKeyboardController.current
                                 val focusManager = LocalFocusManager.current
@@ -803,7 +598,6 @@ fun DiaryScreen(
                                                 keyboardController?.show()
                                             })
                                         },
-
 
                                     textStyle = LocalTextStyle.current.copy(
                                         fontFamily = DiaryHandwritingFont,
@@ -825,7 +619,6 @@ fun DiaryScreen(
                                                 )
                                                 .padding(12.dp)
                                         ) {
-
                                             if (diaryViewModel.todos?.isNotEmpty() == true) {
                                                 Text(
                                                     text = "Tasks",
@@ -845,7 +638,6 @@ fun DiaryScreen(
                                                         .padding(vertical = 4.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-
                                                     Checkbox(
                                                         checked = todo.isDone,
                                                         onCheckedChange = {
@@ -885,7 +677,6 @@ fun DiaryScreen(
                                     }
                                 )
                             }
-                            // ADD this right after EditorToolbar(...) call, inside the editor Column:
                             if ((diaryViewModel.recurringTodos.isNotEmpty())) {
                                 TextButton(
                                     onClick = { showRecurringManager = true },
@@ -898,9 +689,7 @@ fun DiaryScreen(
                                     )
                                 }
                             }
-
                         } else {
-
                             // ✅ PREVIEW — animated
                             Box(
                                 modifier = Modifier
@@ -927,54 +716,8 @@ fun DiaryScreen(
                                         cameraDistance = 12f * density
                                     }
 
-
                             ) {
-
-                                // REPLACE the todos forEach inside decorationBox:
 //                                var todoToDelete by remember { mutableStateOf<TodoEntity?>(null) }
-
-//                                diaryViewModel.todos?.forEach { todo ->
-//                                    var showDeleteOption by remember(todo.id) { mutableStateOf(false) }
-//
-//                                    Row(
-//                                        modifier = Modifier
-//                                            .fillMaxWidth()
-//                                            .padding(vertical = 4.dp),
-//                                        verticalAlignment = Alignment.CenterVertically
-//                                    ) {
-//                                        Checkbox(
-//                                            checked = todo.isDone,
-//                                            onCheckedChange = { diaryViewModel.toggleTodo(todo, currentDate) }
-//                                        )
-//
-//                                        Text(
-//                                            text = todo.title,
-//                                            modifier = Modifier
-//                                                .weight(1f)
-//                                                .padding(start = 8.dp)
-//                                                .pointerInput(todo.id) {
-//                                                    detectTapGestures(
-//                                                        onLongPress = { showDeleteOption = true }
-//                                                    )
-//                                                },
-//                                            textDecoration = if (todo.isDone) TextDecoration.LineThrough else null
-//                                        )
-//
-//                                        if (showDeleteOption) {
-//                                            TextButton(
-//                                                onClick = {
-//                                                    diaryViewModel.deleteTodo(todo)
-//                                                    showDeleteOption = false
-//                                                }
-//                                            ) {
-//                                                Text("Delete", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-//                                            }
-//                                        }
-//                                    }
-//                                }
-
-                                // In DiaryScreen.kt — PREVIEW mode Box (the else branch)
-// REPLACE the existing diaryViewModel.todos?.forEach { ... } block with this:
 
                                 val todos = diaryViewModel.todos ?: emptyList()
 
@@ -1027,52 +770,9 @@ fun DiaryScreen(
                                         )
                                     }
                                 }
-
-
-//
-//                                val currentText = diaryViewModel.diaryText.text
-//                                val todosLoaded = diaryViewModel.todos  // null = still loading
-//
-//                                when {
-//                                    todosLoaded == null -> {
-//                                        // Loading state — show blank to avoid flicker
-//                                        Box(
-//                                            modifier = Modifier
-//                                                .fillMaxSize()
-//                                                .ruledBackground(lineColor = ruledLineColor, strokeWidth = ruledLineThickness)
-//                                        )
-//                                    }
-//                                    currentText.isBlank() && todosLoaded.isEmpty() -> {
-//                                        EmptyDayPlaceholder(
-//                                            modifier = Modifier
-//                                                .fillMaxSize()
-//                                                .ruledBackground(lineColor = ruledLineColor, strokeWidth = ruledLineThickness)
-//                                        )
-//                                    }
-//                                    else -> {
-//                                        Column(
-//                                            modifier = Modifier
-//                                                .fillMaxSize()
-//                                                .verticalScroll(previewScrollState)
-//                                        ) {
-//                                            DiaryPage(
-//                                                text = currentText,
-//                                                todos = todosLoaded,
-//                                                ruledLineColor = ruledLineColor,
-//                                                ruledLineThickness = ruledLineThickness,
-//                                                modifier = Modifier.fillMaxSize()
-//                                            )
-//                                        }
-//                                    }
-//                                }
-
-
-
                             }
                         }
                     }
-
-
 
                     // ▶ NEXT DAY (already loaded, blurred)
                     pageStack[1]?.let { page ->
@@ -1090,17 +790,9 @@ fun DiaryScreen(
                                 .blur(8.dp),
                             onDeleteTodo = { diaryViewModel.deleteTodo(it) }
                         )
-
                     }
                 }
-
-
-
-
-
                 }
-
-
 
             /* -------- TYPE PICKER -------- */
 
@@ -1173,7 +865,6 @@ fun DiaryScreen(
                 onDismiss = { showRecurringManager = false }
             )
         }
-
     }
     LaunchedEffect(Unit) {
         diaryViewModel.reinitializeIfEmpty()
@@ -1189,8 +880,6 @@ fun DiaryScreen(
             )
         }
     }
-
-
 
     if (showCalendarPicker) {
         ModalBottomSheet(
@@ -1239,463 +928,4 @@ fun DiaryScreen(
             }
         )
     }
-
-
-
  }
-
-
-
-
-@Composable
-fun MonthYearPicker(
-    initialDate: LocalDate,
-    onDismiss: () -> Unit,
-    onDateSelected: (LocalDate) -> Unit
-) {
-    val months = listOf(
-        "Jan","Feb","Mar","Apr","May","Jun",
-        "Jul","Aug","Sep","Oct","Nov","Dec"
-    )
-
-    var selectedYear by remember { mutableStateOf(initialDate.year) }
-    var selectedMonth by remember { mutableStateOf(initialDate.monthValue - 1) }
-
-
-
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-
-        // YEAR SELECTOR
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = { selectedYear-- }) {
-                Text("−", fontSize = 24.sp)
-            }
-
-            Text(
-                text = selectedYear.toString(),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
-
-            IconButton(onClick = { selectedYear++ }) {
-                Text("+", fontSize = 24.sp)
-            }
-        }
-
-        Divider(color = MaterialTheme.colorScheme.primary)
-
-        // MONTH GRID
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            months.chunked(3).forEachIndexed { rowIndex, row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    row.forEachIndexed { colIndex, month ->
-                        val index = rowIndex * 3 + colIndex
-                        val isSelected = index == selectedMonth
-                        Text(
-                            text = month,
-                            modifier = Modifier
-                                .padding(12.dp)
-                                .clickable {
-                                    selectedMonth = index
-                                    onDateSelected(
-                                        LocalDate.of(
-                                            selectedYear,
-                                            selectedMonth + 1,
-                                            minOf(
-                                                initialDate.dayOfMonth,
-                                                LocalDate
-                                                    .of(
-                                                        selectedYear,
-                                                        selectedMonth + 1,
-                                                        1
-                                                    )
-                                                    .lengthOfMonth()
-                                            )
-                                        )
-                                    )
-                                },
-                            color = if (isSelected)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onBackground ,
-                            fontWeight = if (isSelected)
-                                FontWeight.Bold
-                            else
-                                FontWeight.Normal
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun EditorToolbar(
-    enabled: Boolean,
-    onAddType: () -> Unit,
-    onFormat: (TextFormat) -> Unit,
-    onAddTodoClick: () -> Unit,
-    onAddRecurringClick: () -> Unit,
-    onManageRecurringClick: () -> Unit,
-
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-//        IconButton(onClick = { onFormat(TextFormat.Bold) }) {
-//            Text("B", fontWeight = FontWeight.Bold)
-//        }
-//        IconButton(onClick = { onFormat(TextFormat.Italic) }) {
-//            Text("I", fontStyle = FontStyle.Italic)
-//        }
-//        IconButton(onClick = { onFormat(TextFormat.Underline) }) {
-//            Text("U", textDecoration = TextDecoration.Underline)
-//        }
-//
-//
-//        Spacer(Modifier.weight(1f))
-//
-//        IconButton(onClick = onAddType) {
-//            Icon(
-//                painter = painterResource(id = R.drawable.baseline_attach_file_24),
-//                contentDescription = "Attach"
-//            )
-//        }
-
-
-//
-//        IconButton(onClick = { onFormat(TextFormat.Bold) }) {
-//            Text("B", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-//        }
-//        IconButton(onClick = { onFormat(TextFormat.Italic) }) {
-//            Text("I", fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onBackground)
-//        }
-//        IconButton(onClick = { onFormat(TextFormat.Underline) }) {
-//            Text("U", textDecoration = TextDecoration.Underline, color = MaterialTheme.colorScheme.onBackground)
-//        }
-
-        Spacer(Modifier.weight(1f))
-
-
-        // ✅ ADD BUTTON
-        IconButton(
-            onClick = onAddTodoClick
-        ) {
-            Icon(
-                imageVector = Icons.Default.AddCircle,
-                contentDescription = "Add Todo"
-            )
-        }
-
-
-        Spacer(Modifier.width(8.dp))
-
-
-//        IconButton(onClick = onAddRecurringClick) {
-//            Icon(
-//                imageVector = Icons.Default.DateRange,
-//                contentDescription = "Add Recurring Task",
-//                tint = MaterialTheme.colorScheme.onBackground
-//            )
-//        }
-
-        Box {
-            IconButton(onClick = onAddRecurringClick) {
-                Icon(
-                    imageVector = Icons.Default.DateRange,
-                    contentDescription = "Add Recurring Task",
-                    tint = MaterialTheme.colorScheme.onBackground
-                )
-            }
-        }
-
-
-        Spacer(Modifier.width(8.dp))
-
-
-        IconButton(onClick = onAddType) {
-            Icon(Icons.Default.Add, contentDescription = "Add")
-        }
-    }
-}
-
-@Composable
-fun EmptyDayPlaceholder(
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(top = 120.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "📖",
-            fontSize = 42.sp
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        Text(
-            text = "No entry for this day",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(Modifier.height(6.dp))
-
-        Text(
-            text = "Tap Edit or start writing your thoughts",
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-        )
-    }
-}
-
-@Composable
-private fun DiaryPage(
-    text: String,
-    modifier: Modifier,
-    ruledLineColor: Color,
-    ruledLineThickness: Float,
-    todos: List<TodoEntity>,
-    onDeleteTodo: ((TodoEntity) -> Unit)? = null
-) {
-    Box(
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.background)
-            .ruledBackground(
-                lineColor = ruledLineColor,
-                strokeWidth = ruledLineThickness
-            )
-            .padding(12.dp)
-    ) {
-
-
-        Column {
-
-            // ✅ TODOS (VISIBLE IN VIEW MODE ALSO)
-//            todos.forEach { todo ->
-//
-//                Row(
-//                    modifier = Modifier
-//                        .fillMaxWidth()
-//                        .padding(vertical = 4.dp),
-//                    verticalAlignment = Alignment.CenterVertically
-//                ) {
-//
-//                    Checkbox(
-//                        checked = todo.isDone,
-//                        onCheckedChange = null // 👈 READ ONLY in view mode
-//                    )
-//
-//                    Text(
-//                        text = todo.title,
-//                        modifier = Modifier.padding(start = 8.dp),
-//                        textDecoration = if (todo.isDone)
-//                            TextDecoration.LineThrough
-//                        else null
-//                    )
-//                }
-//            }
-
-
-            todos.forEach { todo ->
-                var showDeleteOption by remember(todo.id) { mutableStateOf(false) }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = todo.isDone,
-                        onCheckedChange = null
-                    )
-
-                    Text(
-                        text = todo.title,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 8.dp)
-                            .then(
-                                if (onDeleteTodo != null)
-                                    Modifier.pointerInput(todo.id) {
-                                        detectTapGestures(onLongPress = { showDeleteOption = true })
-                                    }
-                                else Modifier
-                            ),
-                        textDecoration = if (todo.isDone) TextDecoration.LineThrough else null
-                    )
-
-                    if (showDeleteOption && onDeleteTodo != null) {
-                        TextButton(onClick = {
-                            onDeleteTodo(todo)
-                            showDeleteOption = false
-                        }) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // ✅ DIARY TEXT
-            Text(
-                text = text,
-                style = LocalTextStyle.current.copy(
-                    fontFamily = DiaryHandwritingFont,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 18.sp,
-                    lineHeight = 28.sp,
-                    letterSpacing = 0.3.sp
-                )
-            )
-        }
-
-
-    }
-}
-
-
-@Composable
-fun AutoSaveIndicator(state: DiaryViewModel.SaveState) {
-    val text = when (state) {
-        DiaryViewModel.SaveState.DIRTY -> "Typing…"
-        DiaryViewModel.SaveState.SAVING -> "Saving…"
-        DiaryViewModel.SaveState.SAVED -> "Saved"
-        DiaryViewModel.SaveState.IDLE -> ""
-    }
-
-    val color = when (state) {
-        DiaryViewModel.SaveState.DIRTY -> MaterialTheme.colorScheme.onSurfaceVariant
-        DiaryViewModel.SaveState.SAVING -> MaterialTheme.colorScheme.secondary
-        DiaryViewModel.SaveState.SAVED -> MaterialTheme.colorScheme.primary
-        DiaryViewModel.SaveState.IDLE -> Color.Transparent
-    }
-
-    if (text.isNotEmpty()) {
-        Text(
-            text = text,
-            color = color,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(end = 12.dp)
-        )
-    }
-}
-
-@Composable
-fun SearchSheet(
-    onClose: () -> Unit,
-    onResultClick: (LocalDate) -> Unit,
-    viewModel: DiaryViewModel = viewModel()
-) {
-    ModalBottomSheet(onDismissRequest = onClose) {
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp)
-        ) {
-
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Search",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-
-                )
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "Close")
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // Search field
-            OutlinedTextField(
-                value = viewModel.searchQuery,
-                onValueChange = viewModel::onSearchQueryChanged,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search by date or content…") },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    focusedTextColor = MaterialTheme.colorScheme.onBackground,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onBackground
-                )
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-
-            val resultDateFormatter = remember { DateTimeFormatter.ofPattern("d MMM yyyy") }
-
-            if (viewModel.searchQuery.isNotBlank() && viewModel.searchResults.isEmpty()) {
-                Text(
-                    text = "No results",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 24.dp)
-                )
-            } else {
-                LazyColumn {
-                    items(viewModel.searchResults) { diary ->
-                        ListItem(
-                            headlineContent = {
-                                val formatted = runCatching {
-                                    LocalDate.parse(diary.date).format(resultDateFormatter)
-                                }.getOrDefault(diary.date)
-                                Text(formatted)
-                            },
-
-
-
-                            supportingContent = {
-                                Text(
-                                    diary.content,
-                                    maxLines = 2
-                                )
-                            },
-                            modifier = Modifier.clickable {
-                                onResultClick(LocalDate.parse(diary.date))
-                            }
-                        )
-                        Divider()
-                    }
-                }
-            }
-        }
-    }
-
-
-}
-
-
-
-

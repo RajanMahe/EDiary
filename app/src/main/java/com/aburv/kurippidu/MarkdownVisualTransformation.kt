@@ -11,11 +11,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.Color
 
-
 class MarkdownVisualTransformation(
     private val textColor: Color = Color.Unspecified
 ) : VisualTransformation {
-
     override fun filter(text: AnnotatedString): TransformedText {
         val builder = AnnotatedString.Builder()
         parseMarkdown(text.text, builder, textColor)

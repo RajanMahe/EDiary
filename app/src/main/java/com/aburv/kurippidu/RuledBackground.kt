@@ -8,7 +8,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.aburv.kurippidu.ui.theme.ParchmentLine
 
-
 fun Modifier.ruledBackground(
 //    lineColor: Color = ParchmentLine,
     lineColor: Color,

@@ -67,8 +67,6 @@ fun HomeScreen(
         }
     ) { padding ->
 
-
-
             if (viewModel.isLoading) {
                 Box(
                     modifier = Modifier
@@ -82,9 +80,6 @@ fun HomeScreen(
                     )
                 }
             }
-
-
-
 
          else if (viewModel.diaries.isEmpty()) {
             // Empty state

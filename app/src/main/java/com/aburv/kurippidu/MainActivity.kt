@@ -34,7 +34,6 @@ import com.aburv.kurippidu.ui.theme.DiaryTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
-
     private var lockMode by mutableStateOf(LockMode.OFF)
     private var lockModeLoaded by mutableStateOf(false)
     private var isAuthInProgress = false
@@ -87,7 +86,6 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
-
             val darkTheme = themeMode == ThemeMode.DARK
 
             DiaryTheme(darkTheme = darkTheme) {
@@ -100,7 +98,6 @@ class MainActivity : FragmentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color.Transparent
                 ) {
-
                     // Wait until the saved lock setting is known
                     if (!lockModeLoaded) {
                         Box(Modifier.fillMaxSize())
@@ -110,7 +107,6 @@ class MainActivity : FragmentActivity() {
                     val isLocked = lockMode == LockMode.BIOMETRIC && !AppLockState.isUnlocked
 
                     Box(Modifier.fillMaxSize()) {
-
                         // The NavHost stays alive while locked, so after unlocking
                         // the user is back on the same screen, page and text.
                         Box(

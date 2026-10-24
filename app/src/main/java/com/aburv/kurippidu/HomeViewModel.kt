@@ -9,7 +9,6 @@ import com.aburv.kurippidu.data.DiaryRepository
 import kotlinx.coroutines.launch
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
-
     private val repository = DiaryRepository.get(application)
 
     var diaries by mutableStateOf<List<DiaryOwnerEntity>>(emptyList())

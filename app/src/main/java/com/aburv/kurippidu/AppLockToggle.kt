@@ -7,8 +7,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.SwitchDefaults
 
-
-
 @Composable
 fun AppLockToggle(
     currentMode: LockMode,
@@ -28,7 +26,6 @@ fun AppLockToggle(
             )
         },
         trailingContent = {
-
             Switch(
                 checked = isEnabled,
                 onCheckedChange = { checked ->
@@ -45,7 +42,6 @@ fun AppLockToggle(
                     uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             )
-
         }
     )
 }

@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.map
 private val Context.dataStore by preferencesDataStore("backup_prefs")
 
 object BackupPreferences {
-
     /* ---------------- KEYS ---------------- */
 
     private val LAST_BACKUP_TIME = longPreferencesKey("last_backup_time")
@@ -18,7 +17,6 @@ private fun lastOpenedDateKey(diaryId: Int) =
     stringPreferencesKey("last_opened_date_$diaryId")
 
     private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
-
 
     /* ---------------- BACKUP ---------------- */
 
@@ -58,7 +56,6 @@ private fun lastOpenedDateKey(diaryId: Int) =
                 ?: LockMode.OFF
         }
 
-
     /* ---------------- LAST OPENED DATE ---------------- */
 
     fun lastOpenedDate(context: Context, diaryId: Int): Flow<String?> =
@@ -84,5 +81,4 @@ private fun lastOpenedDateKey(diaryId: Int) =
                 ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.LIGHT
         }
-
 }

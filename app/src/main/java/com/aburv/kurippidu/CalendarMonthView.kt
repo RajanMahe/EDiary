@@ -1,72 +1,3 @@
-//package com.aburv.kurippidu
-//
-//import android.text.Layout
-//import androidx.compose.foundation.layout.Box
-//import androidx.compose.foundation.layout.Column
-//import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-//import androidx.compose.material3.MaterialTheme
-//import androidx.compose.material3.Text
-//import androidx.compose.runtime.Composable
-//import androidx.compose.ui.unit.dp
-//import java.time.LocalDate
-//import java.time.YearMonth
-//import androidx.compose.foundation.background
-//import androidx.compose.foundation.clickable
-//import androidx.compose.foundation.layout.*
-//import androidx.compose.foundation.lazy.grid.*
-//import androidx.compose.foundation.shape.CircleShape
-//import androidx.compose.material3.*
-//import androidx.compose.ui.Alignment
-//import androidx.compose.ui.unit.dp
-//import androidx.compose.ui.text.style.TextDecoration
-//import androidx.compose.ui.Modifier
-//
-//@Composable
-//fun CalendarMonthView(
-//    currentMonth: YearMonth,
-//    entryDates: List<LocalDate>,
-//    onDateClick: (LocalDate) -> Unit
-//) {
-//    val daysInMonth = currentMonth.lengthOfMonth()
-//
-//    Column {
-//        Text(
-//            text = currentMonth.month.name,
-//            style = MaterialTheme.typography.titleLarge
-//        )
-//
-//        LazyVerticalGrid(columns = GridCells.Fixed(7)) {
-//            items(daysInMonth) { day ->
-//                val date = currentMonth.atDay(day + 1)
-//                val hasEntry = entryDates.contains(date)
-//
-//                Box(
-//                    modifier = Modifier
-//                        .padding(8.dp)
-//                        .clickable { onDateClick(date) },
-//                    contentAlignment = Alignment.Center
-//                ) {
-//                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-//                        Text("${day + 1}")
-//
-//                        if (hasEntry) {
-//                            Box(
-//                                modifier = Modifier
-//                                    .size(6.dp)
-//                                    .background(
-//                                        MaterialTheme.colorScheme.primary,
-//                                        shape = CircleShape
-//                                    )
-//                            )
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
-//}
-//
-
 package com.aburv.kurippidu
 
 import androidx.compose.foundation.background
@@ -106,7 +37,6 @@ fun CalendarMonthView(
     val dayHeaders = listOf("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa")
 
     Column(modifier = Modifier.padding(16.dp)) {
-
         // ── Month + Year header with prev/next arrows ──
         Row(
             modifier = Modifier.fillMaxWidth(),

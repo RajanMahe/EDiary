@@ -1,139 +1,7 @@
-//@file:OptIn(ExperimentalMaterial3Api::class)
-//
-//package com.aburv.kurippidu
-//
-//import androidx.compose.foundation.layout.*
-//import androidx.compose.foundation.lazy.LazyColumn
-//import androidx.compose.foundation.lazy.items
-//import androidx.compose.material.icons.Icons
-//import androidx.compose.material.icons.filled.Delete
-//import androidx.compose.material3.*
-//import androidx.compose.runtime.*
-//import androidx.compose.ui.Alignment
-//import androidx.compose.ui.Modifier
-//import androidx.compose.ui.text.font.FontWeight
-//import androidx.compose.ui.unit.dp
-//import androidx.compose.ui.unit.sp
-//import java.time.LocalDate
-//import java.time.format.DateTimeFormatter
-//
-//@Composable
-//fun RecurringTaskManagerSheet(
-//    viewModel: DiaryViewModel,
-//    onDismiss: () -> Unit
-//) {
-//    LaunchedEffect(Unit) {
-//        viewModel.loadRecurringTodos()
-//    }
-//
-//    val fmt = DateTimeFormatter.ofPattern("d MMM yyyy")
-//    var todoToDelete by remember { mutableStateOf<TodoEntity?>(null) }
-//
-//    ModalBottomSheet(onDismissRequest = onDismiss) {
-//        Column(
-//            modifier = Modifier
-//                .fillMaxWidth()
-//                .padding(horizontal = 16.dp)
-//        ) {
-//            Text(
-//                text = "Recurring Tasks",
-//                fontWeight = FontWeight.Bold,
-//                fontSize = 20.sp,
-//                modifier = Modifier.padding(vertical = 16.dp)
-//            )
-//
-//            if (viewModel.recurringTodos.isEmpty()) {
-//                Box(
-//                    modifier = Modifier
-//                        .fillMaxWidth()
-//                        .padding(vertical = 48.dp),
-//                    contentAlignment = Alignment.Center
-//                ) {
-//                    Text(
-//                        text = "No recurring tasks yet",
-//                        color = MaterialTheme.colorScheme.onSurfaceVariant
-//                    )
-//                }
-//            } else {
-//                LazyColumn {
-//                    items(viewModel.recurringTodos, key = { it.id }) { todo ->
-//                        Row(
-//                            modifier = Modifier
-//                                .fillMaxWidth()
-//                                .padding(vertical = 8.dp),
-//                            verticalAlignment = Alignment.CenterVertically
-//                        ) {
-//                            Column(modifier = Modifier.weight(1f)) {
-//                                Text(
-//                                    text = todo.title,
-//                                    fontWeight = FontWeight.Medium,
-//                                    fontSize = 15.sp
-//                                )
-//                                Spacer(Modifier.height(2.dp))
-//                                val startFmt = runCatching {
-//                                    LocalDate.parse(todo.startDate).format(fmt)
-//                                }.getOrDefault(todo.startDate ?: "")
-//                                val endFmt = runCatching {
-//                                    LocalDate.parse(todo.endDate).format(fmt)
-//                                }.getOrDefault(todo.endDate ?: "")
-//                                Text(
-//                                    text = "$startFmt → $endFmt",
-//                                    fontSize = 12.sp,
-//                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-//                                )
-//                            }
-//
-//                            IconButton(
-//                                onClick = { todoToDelete = todo }
-//                            ) {
-//                                Icon(
-//                                    imageVector = Icons.Default.Delete,
-//                                    contentDescription = "Delete",
-//                                    tint = MaterialTheme.colorScheme.error
-//                                )
-//                            }
-//                        }
-//                        Divider()
-//                    }
-//                }
-//            }
-//
-//            Spacer(Modifier.height(32.dp))
-//        }
-//    }
-//
-//    // Confirm delete dialog
-//    todoToDelete?.let { todo ->
-//        AlertDialog(
-//            onDismissRequest = { todoToDelete = null },
-//            title = { Text("Delete task?") },
-//            text = {
-//                Text("\"${todo.title}\" will be removed from all days in its date range.")
-//            },
-//            confirmButton = {
-//                TextButton(
-//                    onClick = {
-//                        viewModel.deleteRecurringTodo(todo)
-//                        todoToDelete = null
-//                    }
-//                ) {
-//                    Text("Delete", color = MaterialTheme.colorScheme.error)
-//                }
-//            },
-//            dismissButton = {
-//                TextButton(onClick = { todoToDelete = null }) {
-//                    Text("Cancel")
-//                }
-//            }
-//        )
-//    }
-//}
-
 @file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.aburv.kurippidu
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -144,7 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -284,12 +151,10 @@ private fun EditRecurringDateDialog(
     onDismiss: () -> Unit,
     onConfirm: (LocalDate, LocalDate) -> Unit
 ) {
-    val context = LocalContext.current
     val fmt = DateTimeFormatter.ofPattern("d MMM yyyy")
 
-
-    var showStartPicker by remember { mutableStateOf(false) }  // ✅
-    var showEndPicker   by remember { mutableStateOf(false) }  // ✅
+    var showStartPicker by remember { mutableStateOf(false) }
+    var showEndPicker by remember { mutableStateOf(false) }
 
     var startDate by remember {
         mutableStateOf(
@@ -303,19 +168,6 @@ private fun EditRecurringDateDialog(
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // ✅ FIX 5: Use app-themed date pickers via MaterialDatePicker instead of native dialog
-    val startPickerDialog = DatePickerDialog(
-        context,
-        { _, year, month, day -> startDate = LocalDate.of(year, month + 1, day) },
-        startDate.year, startDate.monthValue - 1, startDate.dayOfMonth
-    )
-
-    val endPickerDialog = DatePickerDialog(
-        context,
-        { _, year, month, day -> endDate = LocalDate.of(year, month + 1, day) },
-        endDate.year, endDate.monthValue - 1, endDate.dayOfMonth
-    )
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit date range") },
@@ -326,20 +178,6 @@ private fun EditRecurringDateDialog(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
-//                OutlinedButton(
-//                    onClick = { startPickerDialog.show() },
-//                    modifier = Modifier.fillMaxWidth()
-//                ) {
-//                    Text("From: ${startDate.format(fmt)}")
-//                }
-//
-//                OutlinedButton(
-//                    onClick = { endPickerDialog.show() },
-//                    modifier = Modifier.fillMaxWidth()
-//                ) {
-//                    Text("To: ${endDate.format(fmt)}")
-//                }
 
                 OutlinedButton(
                     onClick = { showStartPicker = true },  // use state var
@@ -373,7 +211,6 @@ private fun EditRecurringDateDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
-
 
     if (showStartPicker) {
         AppDatePickerDialog(

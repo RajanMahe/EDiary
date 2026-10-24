@@ -25,30 +25,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
-
 //-------------------restoreJsonLauncher------------//
-
-
-
 
 //-------------------ImportTextLauncher------------//
 
-
-
-
-
-
-
-
-
-
 @OptIn(ExperimentalMaterial3Api::class)
-
 
 @Composable
 fun BackupRestoreScreen(
-
-
 
     viewModel: DiaryViewModel = viewModel(),
     onExportStarted: () -> Unit,
@@ -75,9 +59,7 @@ fun BackupRestoreScreen(
         mutableStateOf<List<LocalDate>>(emptyList())
     }
 
-
     var isRestoring by remember { mutableStateOf(false) }
-
 
     val restoreJsonLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -100,11 +82,6 @@ fun BackupRestoreScreen(
             }
         }
     }
-
-
-
-
-
 
     val importTxtLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -167,9 +144,6 @@ fun BackupRestoreScreen(
 
     var showAllDates by remember { mutableStateOf(false) }
 
-
-
-
     if (pendingImportText != null) {
         ModalBottomSheet(
             onDismissRequest = {
@@ -178,7 +152,6 @@ fun BackupRestoreScreen(
             }
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-
                 Text(
                     "Import preview",
                     style = MaterialTheme.typography.titleMedium
@@ -240,13 +213,9 @@ fun BackupRestoreScreen(
                 ) {
                     Text("Import")
                 }
-
             }
         }
     }
-
-
-
 
     LaunchedEffect(Unit) {
         totalEntries = viewModel.getTotalEntryCount()
@@ -282,7 +251,6 @@ fun BackupRestoreScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-
             /* ---------- EXPORT ---------- */
 
             item {
@@ -301,7 +269,6 @@ fun BackupRestoreScreen(
                         }
                     }
                 )
-
             }
 
             item {
@@ -316,7 +283,6 @@ fun BackupRestoreScreen(
                         }
                     }
                 )
-
             }
 
             item {
@@ -334,16 +300,12 @@ fun BackupRestoreScreen(
                     title = "Restore from JSON",
                     subtitle = if (isRestoring) "Restoring…" else "Restore a backup file",
                     onClick = if (isRestoring) null else {
-
                         {
                             onExportStarted() // ⭐ disable biometric temporarily
 
                             restoreJsonLauncher.launch(arrayOf("application/json")) }
                     }
                 )
-
-
-
             }
 
             item {
@@ -353,14 +315,11 @@ fun BackupRestoreScreen(
                     onClick = {
                         onExportStarted() // ⭐ disable biometric temporarily
 
-
                         importTxtLauncher.launch(
                             arrayOf("text/plain")
                         )
                     }
                 )
-
-
             }
 
             item {
@@ -372,7 +331,6 @@ fun BackupRestoreScreen(
                         if (!clip.isNullOrBlank()) {
                             pendingImportText = clip
                             pendingImportCount = viewModel.previewImportCount(clip)
-
                         } else {
                             scope.launch {
                                 snackbarHostState.showSnackbar("Clipboard empty")
@@ -380,7 +338,6 @@ fun BackupRestoreScreen(
                         }
                     }
                 )
-
             }
 
             item {
@@ -421,7 +378,6 @@ fun BackupRestoreScreen(
         }
     }
 
-
     LaunchedEffect(viewModel) {
         viewModel.backupEvents.collect { event ->
             snackbarHostState.showSnackbar(
@@ -432,7 +388,6 @@ fun BackupRestoreScreen(
             )
         }
     }
-
 
     if (showRestoreConfirm && pendingRestoreJson != null) {
         AlertDialog(
@@ -473,9 +428,6 @@ fun BackupRestoreScreen(
             }
         )
     }
-
-
-
 }
 @Composable
 private fun SectionHeader(text: String) {
