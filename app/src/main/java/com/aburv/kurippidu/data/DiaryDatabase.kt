@@ -6,7 +6,6 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.aburv.kurippidu.TodoEntity
 
 @Database(
     entities = [
@@ -14,7 +13,7 @@ import com.aburv.kurippidu.TodoEntity
         DiaryEntity::class,
         TodoEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
@@ -118,6 +117,36 @@ abstract class DiaryDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 🔹 Migration 6 → 7
+         * Links each day's recurring-task check (DAILY_OVERRIDE) to its parent
+         * task by id instead of by title.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE todo ADD COLUMN parentId INTEGER")
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_todo_parentId ON todo (parentId)"
+                )
+                // Backfill: match existing overrides to their recurring task by title
+                database.execSQL("""
+                    UPDATE todo SET parentId = (
+                        SELECT r.id FROM todo r
+                        WHERE r.type = 'RECURRING'
+                          AND r.diaryId = todo.diaryId
+                          AND r.title = todo.title
+                        ORDER BY r.id
+                        LIMIT 1
+                    )
+                    WHERE type = 'DAILY_OVERRIDE'
+                """)
+            }
+        }
+
+        val ALL_MIGRATIONS = arrayOf(
+            MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
+        )
+
         fun getDatabase(context: Context): DiaryDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -125,7 +154,7 @@ abstract class DiaryDatabase : RoomDatabase() {
                     DiaryDatabase::class.java,
                     "diary_db"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(*ALL_MIGRATIONS)
                     // Only very old v1 databases are reset (no 1 → 2 migration exists).
                     // Any other missing migration fails loudly instead of wiping user data.
                     .fallbackToDestructiveMigrationFrom(1)

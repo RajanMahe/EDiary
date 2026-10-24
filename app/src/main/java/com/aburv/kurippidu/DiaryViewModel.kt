@@ -1,41 +1,34 @@
-
-
 package com.aburv.kurippidu
 
-//import TodoEntity
 import android.app.Application
+import androidx.compose.runtime.*
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aburv.kurippidu.data.*
 import kotlinx.coroutines.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import kotlinx.coroutines.flow.*
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-import java.time.format.DateTimeFormatterBuilder
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.room.withTransaction
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DiaryViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val db = DiaryDatabase.getDatabase(application)
-    private val dao = db.diaryDao()
+    private val repository = DiaryRepository.get(application)
 
     /* ---------------- ACTIVE DIARY ---------------- */
 
     var activeDiaryId by mutableStateOf(0)
-        internal set
+        private set
 
     var isReady by mutableStateOf(false)
         private set
 
-    /* ---------------- UI STATE ---------------- */
+    // null until setActiveDiary() is called from navigation
+    private val activeDiaryFlow = MutableStateFlow<Int?>(null)
+    private val todoDateFlow = MutableStateFlow(LocalDate.now())
 
-    var entries by mutableStateOf<List<DiaryEntity>>(emptyList())
-        private set
+    /* ---------------- UI STATE ---------------- */
 
     var diaryText by mutableStateOf(TextFieldValue(""))
         private set
@@ -58,124 +51,101 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         isEditMode = date == LocalDate.now()
     }
 
-    /* ---------------- INIT ---------------- */
+    /* ---------------- OBSERVED DATA ---------------- */
+    // These follow Room, so they refresh by themselves after any change.
 
+    var todos by mutableStateOf<List<TodoEntity>?>(null)  // null = not yet loaded
+        private set
+
+    var recurringTodos by mutableStateOf<List<TodoEntity>>(emptyList())
+        private set
+
+    var entryDates by mutableStateOf<Set<LocalDate>>(emptySet())
+        private set
 
     init {
         viewModelScope.launch {
             // Only ensure at least one diary exists in DB.
-            // Do NOT set activeDiaryId here — wait for setActiveDiary() from navigation.
-            if (dao.getDiaryCount() == 0) {
-                dao.insertDiary(
-                    DiaryOwnerEntity(
-                        title = "My Diary",
-                        createdAt = System.currentTimeMillis()
-                    )
-                )
-            }
-            // isReady stays false until setActiveDiary() is called
+            repository.ensureDefaultDiary()
         }
+        viewModelScope.launch {
+            activeDiaryFlow.filterNotNull()
+                .flatMapLatest { repository.observeEntryDates(it) }
+                .collect { entryDates = it }
+        }
+        viewModelScope.launch {
+            activeDiaryFlow.filterNotNull()
+                .flatMapLatest { repository.observeRecurringTodos(it) }
+                .collect { recurringTodos = it }
+        }
+        viewModelScope.launch {
+            // flatMapLatest drops the previous day's query, so fast date
+            // switching can never show another day's tasks
+            combine(activeDiaryFlow.filterNotNull(), todoDateFlow) { id, date -> id to date }
+                .flatMapLatest { (id, date) -> repository.observeTodosForDay(id, date) }
+                .collect { todos = it }
+        }
+    }
+
+    fun setActiveDiary(id: Int) {
+        // Guard: if already set to same diary, don't reload
+        if (activeDiaryId == id && isReady) return
+        activeDiaryId = id
+        isReady = true
+        activeDiaryFlow.value = id
+        loadDiaryForDate(currentDate)
     }
 
     /* ---------------- To-Do ---------------- */
 
-
-    var todos by mutableStateOf<List<TodoEntity>?>(null)  // null = not yet loaded
-
-
-        private set
-
-    // REPLACE your loadTodos function:
     fun loadTodos(date: LocalDate) {
-        viewModelScope.launch {
+        if (todoDateFlow.value != date) {
             todos = null
-            val daily = dao.getTodosForDate(activeDiaryId, date.toString())
-                .filter { it.type == "DAILY" }
-
-            val overrides = dao.getTodosForDate(activeDiaryId, date.toString())
-                .filter { it.type == "DAILY_OVERRIDE" }
-
-            val recurring = dao.getRecurringTodosForDate(activeDiaryId, date.toString())
-
-            // For each recurring task, check if there's an override for this date.
-            // If yes, show the override (with correct isDone state).
-            // If no, show the recurring task as-is (isDone = false).
-            val recurringMerged = recurring.map { recurringTodo ->
-                val override = overrides.firstOrNull { it.title == recurringTodo.title }
-                override ?: recurringTodo
-            }
-
-            todos = (daily + recurringMerged).sortedBy { it.id }
+            todoDateFlow.value = date
         }
     }
 
-    // ADD this new function for creating recurring tasks:
-    fun addRecurringTodo(
-        title: String,
-        startDate: LocalDate,
-        endDate: LocalDate
-    ) {
+    fun addTodo(text: String, date: LocalDate) {
+        viewModelScope.launch { repository.addDailyTodo(activeDiaryId, text, date) }
+    }
+
+    fun addRecurringTodo(title: String, startDate: LocalDate, endDate: LocalDate) {
         viewModelScope.launch {
-            val todo = TodoEntity(
-                diaryId = activeDiaryId,
-                title = title,
-                date = startDate.toString(),   // anchor date
-                type = "RECURRING",
-                startDate = startDate.toString(),
-                endDate = endDate.toString(),
-                isDone = false
-            )
-            dao.insertTodo(todo)
-            loadRecurringTodos()
-            loadTodos(currentDate)
-            loadEntryDates()
+            repository.addRecurringTodo(activeDiaryId, title, startDate, endDate)
         }
     }
 
-    // UPDATE toggleTodo — recurring todos need special handling
-// because isDone should be per-day, not global.
-// Simplest approach: clone as a DAILY todo for that specific day.
-    fun toggleRecurringTodo(todo: TodoEntity, date: LocalDate) {
-        viewModelScope.launch {
-            // Check if a daily override exists for this date
-            val existingOverride = dao.getTodosForDate(activeDiaryId, date.toString())
-                .firstOrNull { it.title == todo.title && it.type == "DAILY_OVERRIDE" }
-
-            if (existingOverride != null) {
-                dao.updateTodo(existingOverride.copy(isDone = !existingOverride.isDone))
-            } else {
-                // Create a daily override for just this date
-                dao.insertTodo(
-                    TodoEntity(
-                        diaryId = activeDiaryId,
-                        title = todo.title,
-                        date = date.toString(),
-                        type = "DAILY_OVERRIDE",
-                        startDate = todo.startDate,
-                        endDate = todo.endDate,
-                        isDone = true
-                    )
-                )
-            }
-            loadTodos(date)
-        }
+    fun toggleTodo(todo: TodoEntity, date: LocalDate = currentDate) {
+        viewModelScope.launch { repository.toggleTodo(todo, date) }
     }
 
+    fun deleteTodo(todo: TodoEntity) {
+        viewModelScope.launch { repository.deleteTodo(todo) }
+    }
+
+    fun deleteRecurringTodo(todo: TodoEntity) {
+        viewModelScope.launch { repository.deleteRecurringTodo(todo) }
+    }
+
+    fun updateRecurringTodoDates(todo: TodoEntity, newStart: LocalDate, newEnd: LocalDate) {
+        viewModelScope.launch { repository.updateRecurringTodoDates(todo, newStart, newEnd) }
+    }
 
     /* ---------------- LOAD ---------------- */
 
-    private suspend fun loadAllEntries() {
-        entries = dao.getAllEntries(activeDiaryId)
-    }
+    private var loadTextJob: Job? = null
 
     fun loadDiaryForDate(date: LocalDate) {
         currentDate = date
 
-        viewModelScope.launch {
-            while (!isReady) delay(50)
-
-            val entry = dao.getEntryByDate(activeDiaryId, date.toString())
-            diaryText = TextFieldValue(entry?.content ?: "")
+        // Cancel the previous day's load so a slow result can't overwrite this day
+        loadTextJob?.cancel()
+        loadTextJob = viewModelScope.launch {
+            val diaryId = activeDiaryFlow.filterNotNull().first()
+            val entry = repository.getEntry(diaryId, date)
+            if (currentDate == date) {
+                diaryText = TextFieldValue(entry?.content ?: "")
+            }
         }
     }
 
@@ -198,21 +168,18 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun saveCurrent() {
-        if (saveState != SaveState.DIRTY) return
+        if (saveState != SaveState.DIRTY || !isReady) return
+
+        // Snapshot before suspending: the date or text may change while saving
+        val diaryId = activeDiaryId
+        val date = currentDate
+        val text = diaryText.text
 
         saveState = SaveState.SAVING
+        repository.saveEntry(diaryId, date, text)
 
-        dao.insert(
-            DiaryEntity(
-                diaryOwnerId = activeDiaryId,
-                date = currentDate.toString(),
-                content = diaryText.text
-            )
-        )
-
-        saveState = SaveState.SAVED
-        loadAllEntries()
-        loadEntryDates()   // 🔥 refresh calendar
+        // If the user typed during the save, stay DIRTY so it saves again
+        if (saveState == SaveState.SAVING) saveState = SaveState.SAVED
     }
 
     fun saveCurrentDiary() {
@@ -228,12 +195,10 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         if (saveState == SaveState.DIRTY && isReady) {
-            val entry = DiaryEntity(
-                diaryOwnerId = activeDiaryId,
-                date = currentDate.toString(),
-                content = diaryText.text
-            )
-            saveScope.launch { dao.insert(entry) }
+            val diaryId = activeDiaryId
+            val date = currentDate
+            val text = diaryText.text
+            saveScope.launch { repository.saveEntry(diaryId, date, text) }
         }
         super.onCleared()
     }
@@ -246,26 +211,36 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     var searchResults by mutableStateOf<List<DiaryEntity>>(emptyList())
         private set
 
+    private var searchJob: Job? = null
+
     fun onSearchQueryChanged(query: String) {
         searchQuery = query
 
-        viewModelScope.launch {
-            searchResults =
-                if (query.isBlank()) emptyList()
-                else dao.searchEntries(activeDiaryId, "%$query%")
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            if (query.isBlank()) {
+                searchResults = emptyList()
+                return@launch
+            }
+            delay(250) // wait for typing to pause
+            searchResults = repository.search(activeDiaryId, query)
         }
+    }
+
+    fun clearSearch() {
+        searchJob?.cancel()
+        searchQuery = ""
+        searchResults = emptyList()
     }
 
     /* ---------------- BACKUP / EXPORT ---------------- */
 
-    suspend fun getTotalEntryCount(): Int {
-        return dao.getCount(activeDiaryId)
-    }
+    suspend fun getTotalEntryCount(): Int = repository.countEntries(activeDiaryId)
 
     suspend fun exportAsJson(): String {
         val array = org.json.JSONArray()
 
-        dao.getAllEntries(activeDiaryId).forEach {
+        repository.getAllEntries(activeDiaryId).forEach {
             val obj = org.json.JSONObject()
             obj.put("date", it.date)
             obj.put("content", it.content)
@@ -275,136 +250,70 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         return array.toString(2)
     }
 
+    suspend fun exportAsMarkdown(): String {
+        val all = repository.getAllEntries(activeDiaryId)
+        return buildString {
+            all.forEach { diary ->
+                append("## ${diary.date}\n\n")
+                append(diary.content)
+                append("\n\n---\n\n")
+            }
+        }
+    }
 
     /* ---------------- IMPORT TEXT ---------------- */
 
-    fun previewImportCount(raw: String): Int {
-        return parseTextToEntries(raw).size
-    }
+    fun previewImportCount(raw: String): Int = DiaryTextParser.parse(raw).size
 
-    fun previewImportDates(raw: String): List<LocalDate> {
-        return parseTextToEntries(raw)
-            .map { it.date }
-            .sortedDescending()
-    }
+    fun previewImportDates(raw: String): List<LocalDate> =
+        DiaryTextParser.parse(raw).map { it.date }.sortedDescending()
 
     suspend fun importFromTextSafe(raw: String) {
-        val entries = parseTextToEntries(raw)
-
-        entries.forEach {
-            dao.insert(
-                DiaryEntity(
-                    diaryOwnerId = activeDiaryId,
-                    date = it.date.toString(),
-                    content = it.content
-                )
-            )
-        }
-
-        loadAllEntries()
+        repository.replaceEntries(activeDiaryId, DiaryTextParser.parse(raw), clearFirst = false)
+        // Refresh the open page in case the import replaced this day
+        loadDiaryForDate(currentDate)
     }
 
+    /* ---------------- RESTORE ---------------- */
 
+    sealed class BackupEvent {
+        data class Success(val message: String) : BackupEvent()
+        data class Error(val message: String) : BackupEvent()
+    }
 
-    /* ---------------- TEXT PARSER ---------------- */
-
-    data class ParsedDiary(
-        val date: LocalDate,
-        val content: String
+    private val _backupEvents = MutableSharedFlow<BackupEvent>(
+        replay = 0,
+        extraBufferCapacity = 1
     )
+    val backupEvents = _backupEvents.asSharedFlow()
 
-    private fun parseTextToEntries(raw: String): List<ParsedDiary> {
+    enum class RestoreMode { OVERWRITE, MERGE }
 
-        var currentDate: LocalDate? = null
-        val buffer = StringBuilder()
-        val result = mutableListOf<ParsedDiary>()
-
-        raw.lineSequence().forEach { line ->
-            val date = parseDateSafe(line)
-
-            if (date != null) {
-                if (currentDate != null && buffer.isNotBlank()) {
-                    result.add(
-                        ParsedDiary(
-                            currentDate!!,
-                            buffer.toString().trim()
-                        )
-                    )
-                }
-                currentDate = date
-                buffer.clear()
-            } else if (currentDate != null) {
-                buffer.appendLine(line)
-            }
-        }
-
-        if (currentDate != null && buffer.isNotBlank()) {
-            result.add(
+    suspend fun restoreFromJson(json: String, mode: RestoreMode = RestoreMode.MERGE) {
+        // 1. Parse and validate EVERYTHING first; nothing is written yet
+        val parsed = try {
+            val items = org.json.JSONArray(json)
+            List(items.length()) { i ->
+                val obj = items.getJSONObject(i)
                 ParsedDiary(
-                    currentDate!!,
-                    buffer.toString().trim()
+                    date = LocalDate.parse(obj.getString("date")), // throws on an invalid date
+                    content = obj.getString("content")
                 )
-            )
-        }
-
-        return result
-    }
-
-    private fun parseDateSafe(line: String): LocalDate? {
-        val cleaned = line.trim()
-
-        // ── Strict numeric formats ──
-        val strictFormats = listOf(
-            DateTimeFormatter.ofPattern("dd-MM-yyyy"),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd"),
-            DateTimeFormatter.ofPattern("dd.MM.yyyy"),
-            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
-        )
-        strictFormats.forEach { fmt ->
-            runCatching { return LocalDate.parse(cleaned, fmt) }
-        }
-
-        // ── Human-readable formats — CASE INSENSITIVE ──
-        // ✅ parseCaseInsensitive() is the KEY fix — "may" and "May" both match
-        // Handles: "5 may 2026", "05 May 2026", "5 MMMM 2026", "May 5, 2026"
-        val humanPatterns = listOf(
-            "d MMM yyyy",
-            "dd MMM yyyy",
-            "d MMMM yyyy",
-            "dd MMMM yyyy",
-            "d MMM, yyyy",
-            "MMM d, yyyy",
-            "MMM d yyyy",
-            "MMMM d, yyyy",
-            "MMMM d yyyy",
-        )
-        humanPatterns.forEach { pattern ->
-            listOf(Locale.ENGLISH, Locale.getDefault()).forEach { locale ->
-                runCatching {
-                    val fmt = DateTimeFormatterBuilder()
-                        .parseCaseInsensitive()   // ✅ THIS is what was missing
-                        .appendPattern(pattern)
-                        .toFormatter(locale)
-                    return LocalDate.parse(cleaned, fmt)
-                }
             }
+        } catch (e: Exception) {
+            _backupEvents.emit(BackupEvent.Error("Invalid backup file"))
+            return
         }
 
-        return null
-    }
+        // 2. Write all-or-nothing
+        repository.replaceEntries(
+            activeDiaryId,
+            parsed,
+            clearFirst = mode == RestoreMode.OVERWRITE
+        )
 
-
-
-    fun toggleTodo(todo: TodoEntity, date: LocalDate = currentDate) {
-        viewModelScope.launch {
-            when (todo.type) {
-                "RECURRING" -> toggleRecurringTodo(todo, date)
-                else -> {
-                    dao.updateTodo(todo.copy(isDone = !todo.isDone))
-                    loadTodos(date)
-                }
-            }
-        }
+        loadDiaryForDate(currentDate)
+        _backupEvents.emit(BackupEvent.Success("Restore complete (${parsed.size} entries)"))
     }
 
     /* ---------------- FORMAT ---------------- */
@@ -412,16 +321,17 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     fun applyFormat(format: TextFormat) {
         val text = diaryText.text
         val selection = diaryText.selection
-        val selected = text.substring(selection.start, selection.end)
+        // min/max: a selection dragged right-to-left has start > end
+        val start = selection.min
+        val end = selection.max
+        val selected = text.substring(start, end)
         val (prefix, suffix) = when (format) {
             TextFormat.Bold -> "**" to "**"
             TextFormat.Italic -> "_" to "_"
             TextFormat.Underline -> "__" to "__"
         }
-        val newText = text.substring(0, selection.start) +
-                prefix + selected + suffix +
-                text.substring(selection.end)
-        val newCursor = selection.end + prefix.length + suffix.length
+        val newText = text.substring(0, start) + prefix + selected + suffix + text.substring(end)
+        val newCursor = end + prefix.length + suffix.length
         diaryText = TextFieldValue(text = newText, selection = TextRange(newCursor))
         saveState = SaveState.DIRTY
         scheduleAutoSave()
@@ -432,7 +342,7 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     fun insertTemplate(template: DiaryTemplate) {
         val insertion = "\n${template.emoji} ${template.label}:\n"
         val current = diaryText.text
-        val cursorPos = diaryText.selection.end
+        val cursorPos = diaryText.selection.max
         val newText = current.substring(0, cursorPos) + insertion + current.substring(cursorPos)
         val newCursor = cursorPos + insertion.length
         diaryText = TextFieldValue(text = newText, selection = TextRange(newCursor))
@@ -448,199 +358,26 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     suspend fun preloadPages(center: LocalDate): Map<Int, DiaryPageState> {
-        while (!isReady) delay(50)
-        val prev = dao.getEntryByDate(activeDiaryId, center.minusDays(1).toString())
-        val next = dao.getEntryByDate(activeDiaryId, center.plusDays(1).toString())
+        val diaryId = activeDiaryFlow.filterNotNull().first()
+        val prev = repository.getEntry(diaryId, center.minusDays(1))
+        val next = repository.getEntry(diaryId, center.plusDays(1))
         return mapOf(
             -1 to DiaryPageState(date = center.minusDays(1), text = prev?.content.orEmpty()),
-            0  to DiaryPageState(date = center, text = diaryText.text),
-            1  to DiaryPageState(date = center.plusDays(1), text = next?.content.orEmpty())
+            0 to DiaryPageState(date = center, text = diaryText.text),
+            1 to DiaryPageState(date = center.plusDays(1), text = next?.content.orEmpty())
         )
-    }
-
-    /* ---------------- SEARCH ---------------- */
-
-    fun clearSearch() {
-        searchQuery = ""
-        searchResults = emptyList()
-    }
-
-    /* ---------------- BACKUP EVENTS ---------------- */
-
-    sealed class BackupEvent {
-        data class Success(val message: String) : BackupEvent()
-        data class Error(val message: String) : BackupEvent()
-    }
-
-    private val _backupEvents = MutableSharedFlow<BackupEvent>(
-        replay = 0,
-        extraBufferCapacity = 1
-    )
-    val backupEvents = _backupEvents.asSharedFlow()
-
-    /* ---------------- EXPORT ---------------- */
-
-    suspend fun exportAsMarkdown(): String {
-        val all = dao.getAllEntries(activeDiaryId)
-        return buildString {
-            all.forEach { diary ->
-                append("## ${diary.date}\n\n")
-                append(diary.content)
-                append("\n\n---\n\n")
-            }
-        }
-    }
-
-    /* ---------------- RESTORE ---------------- */
-
-    enum class RestoreMode { OVERWRITE, MERGE }
-
-    suspend fun restoreFromJson(json: String, mode: RestoreMode = RestoreMode.MERGE) {
-        // 1. Parse and validate EVERYTHING first; nothing is written yet
-        val parsed = try {
-            val items = org.json.JSONArray(json)
-            List(items.length()) { i ->
-                val obj = items.getJSONObject(i)
-                val date = obj.getString("date")
-                LocalDate.parse(date) // throws on an invalid date
-                DiaryEntity(
-                    diaryOwnerId = activeDiaryId,
-                    date = date,
-                    content = obj.getString("content")
-                )
-            }
-        } catch (e: Exception) {
-            _backupEvents.emit(BackupEvent.Error("Invalid backup file"))
-            return
-        }
-
-        // 2. Write all-or-nothing
-        db.withTransaction {
-            if (mode == RestoreMode.OVERWRITE) {
-                dao.clearDiary(activeDiaryId)
-            }
-            parsed.forEach { dao.insert(it) }
-        }
-
-        loadAllEntries()
-        loadEntryDates()
-        loadDiaryForDate(currentDate)
-        _backupEvents.emit(BackupEvent.Success("Restore complete (${parsed.size} entries)"))
     }
 
     /* ---------------- REINITIALIZE ---------------- */
 
-    fun setActiveDiary(id: Int) {
-        viewModelScope.launch {
-            // Guard: if already set to same diary, don't reload
-            if (activeDiaryId == id && isReady) return@launch
-            activeDiaryId = id
-            isReady = true
-            loadAllEntries()
-            loadDiaryForDate(currentDate)
-            loadEntryDates()
-            loadTodos(currentDate)
-        }
-    }
-
-
     fun reinitializeIfEmpty() {
         viewModelScope.launch {
-            if (dao.getAllEntries(activeDiaryId).isEmpty()) {
+            val diaryId = activeDiaryFlow.filterNotNull().first()
+            if (repository.countEntries(diaryId) == 0) {
                 saveState = SaveState.IDLE
                 diaryText = TextFieldValue("")
                 currentDate = LocalDate.now()
             }
         }
     }
-
-    var entryDates by mutableStateOf<Set<LocalDate>>(emptySet())
-        private set
-
-    fun loadEntryDates() {
-        viewModelScope.launch {
-            val dates = dao.getAllEntryDates(activeDiaryId)
-            entryDates = dates.mapNotNull {
-                runCatching { LocalDate.parse(it) }.getOrNull()
-            }.toSet()
-        }
-    }
-
-    fun addTodo(text: String, date: LocalDate) {
-        viewModelScope.launch {
-
-            // ✅ STEP 1: Ensure diary entry exists
-            val existing = dao.getEntryByDate(
-                activeDiaryId,
-                date.toString()
-            )
-
-            if (existing == null) {
-                dao.insert(
-                    DiaryEntity(
-                        diaryOwnerId = activeDiaryId,
-                        date = date.toString(),
-                        content = ""   // empty content
-                    )
-                )
-            }
-
-            // ✅ STEP 2: Insert todo
-            val todo = TodoEntity(
-                diaryId = activeDiaryId,
-                title = text,
-                date = date.toString(),
-                type = "DAILY"
-            )
-
-            dao.insertTodo(todo)
-
-            // ✅ STEP 3: refresh
-            loadTodos(date)
-            loadDiaryForDate(date)
-            loadEntryDates()   // 🔥 important for calendar dot
-        }
-    }
-
-    // ADD this function to DiaryViewModel:
-    fun deleteRecurringTodo(todo: TodoEntity) {
-        viewModelScope.launch {
-            dao.deleteTodo(todo)
-            // ✅ FIX 1: also delete all DAILY_OVERRIDEs that belong to this task
-            dao.deleteOverridesForRecurringTask(activeDiaryId, todo.title)
-            loadRecurringTodos()   // ✅ refresh the list
-            loadTodos(currentDate) // ✅ refresh current day view
-        }
-    }
-
-    fun updateRecurringTodoDates(todo: TodoEntity, newStart: LocalDate, newEnd: LocalDate) {
-        viewModelScope.launch {
-            dao.updateTodo(
-                todo.copy(
-                    startDate = newStart.toString(),
-                    endDate = newEnd.toString()
-                )
-            )
-            loadRecurringTodos()
-            loadTodos(currentDate)
-        }
-    }
-
-    // Also ADD this to fetch all recurring todos for management screen:
-    var recurringTodos by mutableStateOf<List<TodoEntity>>(emptyList())
-        private set
-
-    fun loadRecurringTodos() {
-        viewModelScope.launch {
-            recurringTodos = dao.getAllRecurringTodos(activeDiaryId)
-        }
-    }
-    fun deleteTodo(todo: TodoEntity) {
-        viewModelScope.launch {
-            dao.deleteTodo(todo)
-            loadTodos(currentDate)
-        }
-    }
-
-
 }

@@ -65,7 +65,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.aburv.kurippidu.data.TodoEntity
+import com.aburv.kurippidu.data.TodoType
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
@@ -103,15 +105,6 @@ fun DiaryScreen(
 // This must fire first — gates all DB access behind the correct diary ID
     LaunchedEffect(diaryId) {
         diaryViewModel.setActiveDiary(diaryId)
-        diaryViewModel.loadRecurringTodos()
-    }
-
-
-    /* ---------------- Calendar ---------------- */
-
-
-    LaunchedEffect(diaryId) {
-        diaryViewModel.loadEntryDates()
     }
 
     /* ---------------- Restore Backup---------------- */
@@ -539,26 +532,6 @@ fun DiaryScreen(
                     }
                 }
             )
-            if (showBackupScreen) {
-                BackupRestoreScreen(
-                    viewModel = diaryViewModel,
-                    onBack = { showBackupScreen = false
-                        isRestoreInProgress = false  // ⭐ ADD THIS
-
-                    },
-                    onExportStarted = {
-                        isRestoreInProgress = true  // ⭐ ADD THIS
-                        onExportStarted()
-
-
-                    },
-                    onExportFinished = {
-                        isRestoreInProgress = false  // ⭐ ADD THIS
-                        onExportFinished()
-
-                    }
-                )
-            }
         }
     ) { padding ->
 
@@ -882,11 +855,25 @@ fun DiaryScreen(
 
                                                     Text(
                                                         text = todo.title,
-                                                        modifier = Modifier.padding(start = 8.dp),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .padding(start = 8.dp),
                                                         textDecoration = if (todo.isDone)
                                                             TextDecoration.LineThrough
                                                         else null
                                                     )
+
+                                                    // Daily tasks are deleted here; recurring ones
+                                                    // from "Manage recurring tasks"
+                                                    if (todo.type == TodoType.DAILY) {
+                                                        IconButton(onClick = { diaryViewModel.deleteTodo(todo) }) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Close,
+                                                                contentDescription = "Delete task",
+                                                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
 
@@ -1234,6 +1221,24 @@ fun DiaryScreen(
         )
     }
 
+    // Drawn last so it covers the whole diary screen (not inside the top bar)
+    if (showBackupScreen) {
+        BackupRestoreScreen(
+            viewModel = diaryViewModel,
+            onBack = {
+                showBackupScreen = false
+                isRestoreInProgress = false
+            },
+            onExportStarted = {
+                isRestoreInProgress = true
+                onExportStarted()
+            },
+            onExportFinished = {
+                isRestoreInProgress = false
+                onExportFinished()
+            }
+        )
+    }
 
 
 

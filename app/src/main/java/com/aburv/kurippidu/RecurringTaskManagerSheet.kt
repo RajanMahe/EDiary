@@ -148,6 +148,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aburv.kurippidu.data.TodoEntity
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -156,15 +157,7 @@ fun RecurringTaskManagerSheet(
     viewModel: DiaryViewModel,
     onDismiss: () -> Unit
 ) {
-    // ✅ FIX 1: reload every time sheet opens
-    LaunchedEffect(Unit) {
-        viewModel.loadRecurringTodos()
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { }
-    }
-    val context = LocalContext.current
+    // viewModel.recurringTodos follows the database, so no manual reload is needed
     val fmt = DateTimeFormatter.ofPattern("d MMM yyyy")
 
     var todoToDelete by remember { mutableStateOf<TodoEntity?>(null) }

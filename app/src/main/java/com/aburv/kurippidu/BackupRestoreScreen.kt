@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +57,9 @@ fun BackupRestoreScreen(
 )
 
 {
+    // System Back closes this screen instead of leaving the diary
+    BackHandler(onBack = onBack)
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -226,16 +230,7 @@ fun BackupRestoreScreen(
                         scope.launch {
                             val rawText = pendingImportText ?: return@launch
 
-                            // Get dates BEFORE import (for navigation)
-                            val dates = viewModel.previewImportDates(rawText)
-
-                            // Import
                             viewModel.importFromTextSafe(rawText)
-
-                            // Jump to latest imported date
-                            dates.firstOrNull()?.let { importedDate ->
-                                viewModel.loadDiaryForDate(importedDate)
-                            }
 
                             // Cleanup UI state
                             pendingImportText = null

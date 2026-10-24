@@ -1,18 +1,16 @@
 package com.aburv.kurippidu
 
 import android.app.Application
+import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.compose.runtime.*
-import com.aburv.kurippidu.data.DiaryDatabase
 import com.aburv.kurippidu.data.DiaryOwnerEntity
+import com.aburv.kurippidu.data.DiaryRepository
 import kotlinx.coroutines.launch
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val dao = DiaryDatabase
-        .getDatabase(application)
-        .diaryDao()
+    private val repository = DiaryRepository.get(application)
 
     var diaries by mutableStateOf<List<DiaryOwnerEntity>>(emptyList())
         private set
@@ -24,46 +22,28 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     init {
-        loadDiaries()
-    }
-
-    fun loadDiaries() {
+        // Room re-emits on every change, so the list and counts stay current
+        // after creating a diary or writing entries inside one.
         viewModelScope.launch {
-            val loaded = dao.getAllDiaries()
-            diaries = loaded
-            entryCounts = loaded.associate { diary ->
-                diary.diaryId to dao.getEntryCountForDiary(diary.diaryId)
+            repository.observeDiariesWithCounts().collect { rows ->
+                diaries = rows.map { it.diary }
+                entryCounts = rows.associate { it.diary.diaryId to it.entryCount }
+                isLoading = false
             }
-            isLoading = false
         }
     }
 
     fun createDiary(title: String) {
         if (title.isBlank()) return
-        viewModelScope.launch {
-            dao.insertDiary(
-                DiaryOwnerEntity(
-                    title = title.trim(),
-                    createdAt = System.currentTimeMillis()
-                )
-            )
-            loadDiaries()
-        }
+        viewModelScope.launch { repository.createDiary(title) }
     }
 
     fun deleteDiary(diary: DiaryOwnerEntity) {
-        viewModelScope.launch {
-            // Room CASCADE will auto-delete all entries for this diary
-            dao.deleteDiary(diary)
-            loadDiaries()
-        }
+        viewModelScope.launch { repository.deleteDiary(diary) }
     }
 
     fun renameDiary(diary: DiaryOwnerEntity, newTitle: String) {
         if (newTitle.isBlank()) return
-        viewModelScope.launch {
-            dao.updateDiary(diary.copy(title = newTitle.trim()))
-            loadDiaries()
-        }
+        viewModelScope.launch { repository.renameDiary(diary, newTitle) }
     }
 }
