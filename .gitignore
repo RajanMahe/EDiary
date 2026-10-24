@@ -14,3 +14,8 @@
 .cxx
 local.properties
 /.idea/deploymentTargetDropDown.xml
+
+# Release signing secrets (never commit)
+keystore.properties
+*.jks
+*.keystore
