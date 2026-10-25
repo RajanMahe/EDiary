@@ -162,6 +162,11 @@ object IndianFoodTable {
         food("Water", "drinking water|thanni|tanni|mineral water", 0, 0, 250, null, D, FoodTag.WATER),
     )
 
+    private val byFoodName: Map<String, Food> = foods.associateBy { it.name }
+
+    /** A food by its table name, as stored in the entry cache. */
+    fun byName(name: String): Food? = byFoodName[name]
+
     private val words = Regex("""[^\p{L}\p{N}]+""")
 
     /** Alias words joined by single spaces → its food. */

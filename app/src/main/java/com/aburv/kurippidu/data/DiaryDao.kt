@@ -195,6 +195,18 @@ interface DiaryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertWorkoutReview(review: WorkoutReviewEntity)
 
+    /* ---------------- ENTRY ANALYSIS (cache) ---------------- */
+
+    @Query("""
+        SELECT entry_analysis.* FROM entry_analysis
+        JOIN entries ON entries.id = entry_analysis.entryId
+        WHERE entries.diaryOwnerId = :diaryId
+    """)
+    suspend fun getAnalysesForDiary(diaryId: Int): List<EntryAnalysisEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAnalyses(analyses: List<EntryAnalysisEntity>)
+
     /* ---------------- TODOS ---------------- */
 
     @Insert

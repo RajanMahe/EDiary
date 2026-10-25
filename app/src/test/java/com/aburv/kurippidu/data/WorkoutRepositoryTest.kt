@@ -107,4 +107,40 @@ class WorkoutRepositoryTest {
         assertEquals(listOf(day), history.map { it.first })
         assertEquals(2.0, history.single().second.waterLitres, 0.0)
     }
+
+    @Test
+    fun `entries are read once, then only new or edited ones are read again`() = runBlocking {
+        repo.saveEntry(gym, day, "Squat 20 kg 10 rep")
+        repo.saveEntry(gym, day.plusDays(1), "Squat 25 kg 8 rep\n2 idli, sambar")
+        repo.workoutHistory(gym)
+        val first = db.diaryDao().getAnalysesForDiary(gym).associateBy { it.entryId }
+        assertEquals(2, first.size)
+
+        // Edit one day, add another: the untouched day keeps its stored reading
+        repo.saveEntry(gym, day.plusDays(1), "Squat 30 kg 8 rep")
+        repo.saveEntry(gym, day.plusDays(2), "Squat 32.5 kg 5 rep")
+        val history = repo.workoutHistory(gym)
+        assertEquals(listOf(20.0, 30.0, 32.5), history.map { it.sets.single().weightKg })
+
+        val second = db.diaryDao().getAnalysesForDiary(gym).associateBy { it.entryId }
+        val untouched = repo.getEntry(gym, day)!!.id
+        val edited = repo.getEntry(gym, day.plusDays(1))!!.id
+        assertEquals(3, second.size)
+        assertEquals(first.getValue(untouched), second.getValue(untouched))
+        assertTrue(first.getValue(edited) != second.getValue(edited))
+    }
+
+    @Test
+    fun `a stored reading is only used while it matches the text and the parser`() = runBlocking {
+        val analysis = EntryAnalysis.of("3 idli, sambar\nSquat 20 kg 10 rep 3 set")
+        val stored = analysis.toEntity(entryId = 1, content = "3 idli, sambar\nSquat 20 kg 10 rep 3 set")
+
+        val back = EntryAnalysis.from(stored, "3 idli, sambar\nSquat 20 kg 10 rep 3 set")!!
+        assertEquals(analysis.sets.map { it.copy(sourceLine = "") }, back.sets)
+        assertEquals(analysis.food.kcal, back.food.kcal)
+        assertEquals(listOf("Idli", "Sambar"), back.food.items.map { it.food?.name })
+
+        assertEquals(null, EntryAnalysis.from(stored, "changed text"))
+        assertEquals(null, EntryAnalysis.from(stored.copy(parserVersion = EntryAnalysis.PARSER_VERSION - 1), "3 idli, sambar\nSquat 20 kg 10 rep 3 set"))
+    }
 }

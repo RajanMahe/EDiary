@@ -12,7 +12,6 @@ import com.aburv.kurippidu.data.backup.FullBackup
 import com.aburv.kurippidu.data.backup.RestoreSummary
 import com.aburv.kurippidu.data.progress.EntryWorkout
 import com.aburv.kurippidu.data.progress.FoodDay
-import com.aburv.kurippidu.data.progress.FoodParser
 import com.aburv.kurippidu.data.progress.ParsedSet
 import com.aburv.kurippidu.data.progress.Side
 import com.aburv.kurippidu.data.progress.WorkoutDay
@@ -342,29 +341,46 @@ class DiaryRepository internal constructor(
         }
     }
 
+    /**
+     * Every entry with what was read from it. Stored readings are reused; only
+     * new or edited entries are read again, so this stays quick on a long diary.
+     */
+    private suspend fun analysedEntries(diaryId: Int): List<Pair<DiaryEntity, EntryAnalysis>> {
+        val entries = dao.getAllEntries(diaryId)
+        val stored = dao.getAnalysesForDiary(diaryId).associateBy { it.entryId }
+        val fresh = mutableListOf<EntryAnalysisEntity>()
+        val result = withContext(Dispatchers.Default) {
+            entries.map { entry ->
+                val known = stored[entry.id]?.let { EntryAnalysis.from(it, entry.content) }
+                entry to (known ?: EntryAnalysis.of(entry.content).also { fresh += it.toEntity(entry.id, entry.content) })
+            }
+        }
+        if (fresh.isNotEmpty()) dao.upsertAnalyses(fresh)
+        return result
+    }
+
     /** Every day with a workout, oldest first: confirmed sets where reviewed, parsed ones elsewhere. */
     suspend fun workoutHistory(diaryId: Int): List<WorkoutDay> {
         val confirmed = dao.getWorkoutSetsForDiary(diaryId).groupBy { it.entryId }
         val reviewed = dao.getWorkoutReviewsForDiary(diaryId).map { it.entryId }.toSet()
-        val entries = dao.getAllEntries(diaryId)
-        // Reading every entry takes a while on a long diary: never on the main thread
-        return withContext(Dispatchers.Default) { entries.mapNotNull { entry ->
+        val entries = analysedEntries(diaryId)
+        return withContext(Dispatchers.Default) { entries.mapNotNull { (entry, analysis) ->
             val date = runCatching { LocalDate.parse(entry.date) }.getOrNull() ?: return@mapNotNull null
             if (entry.id in reviewed) {
                 WorkoutDay(date, confirmed[entry.id].orEmpty().map { it.toParsed() }, confirmed = true)
             } else {
-                WorkoutParser.parse(entry.content).sets.takeIf { it.isNotEmpty() }?.let { WorkoutDay(date, it, confirmed = false) }
+                analysis.sets.takeIf { it.isNotEmpty() }?.let { WorkoutDay(date, it, confirmed = false) }
             }
         }.filter { it.sets.isNotEmpty() }.sortedBy { it.date } }
     }
 
     /** Every day's food, oldest first. Estimates only. */
     suspend fun foodHistory(diaryId: Int): List<Pair<LocalDate, FoodDay>> {
-        val entries = dao.getAllEntries(diaryId)
+        val entries = analysedEntries(diaryId)
         return withContext(Dispatchers.Default) {
-            entries.mapNotNull { entry ->
+            entries.mapNotNull { (entry, analysis) ->
                 val date = runCatching { LocalDate.parse(entry.date) }.getOrNull() ?: return@mapNotNull null
-                FoodParser.parseDay(entry.content).takeIf { it.items.isNotEmpty() }?.let { date to it }
+                analysis.food.takeIf { it.items.isNotEmpty() }?.let { date to it }
             }.sortedBy { it.first }
         }
     }

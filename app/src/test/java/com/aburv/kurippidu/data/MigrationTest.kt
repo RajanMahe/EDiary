@@ -205,4 +205,19 @@ class MigrationTest {
         }
         db.close()
     }
+
+    @Test
+    fun `v13 database gets the entry cache in v14`() {
+        createFromSchema(13) { raw ->
+            raw.execSQL("INSERT INTO diaries (diaryId, title, createdAt, type) VALUES (1, 'Gym', 0, 'GYM')")
+            raw.execSQL("INSERT INTO entries (id, diaryOwnerId, date, content) VALUES (1, 1, '2026-01-05', 'Squat 20 kg 10 rep')")
+        }
+        val db = openWithRoom()
+        runBlocking {
+            assertEquals(emptyList<EntryAnalysisEntity>(), db.diaryDao().getAnalysesForDiary(1))
+            assertEquals(20.0, DiaryRepository(db).workoutHistory(1).single().sets.single().weightKg)
+            assertEquals(1, db.diaryDao().getAnalysesForDiary(1).size)
+        }
+        db.close()
+    }
 }
