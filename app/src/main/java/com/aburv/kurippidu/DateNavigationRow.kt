@@ -9,6 +9,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,14 +41,29 @@ fun DateNavigationRow(
         StepButton("<<", "Back 2 days", color) { onMoveDays(-2) }
         StepButton("<", "Previous day", color) { onMoveDays(-1) }
 
-        TextButton(onClick = onDateClick, modifier = Modifier.weight(1f)) {
-            Text(dateText, style = MaterialTheme.typography.titleMedium, color = color)
+        TextButton(
+            onClick = onDateClick,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 4.dp)
+        ) {
+            // Always one line: shrink the text until it fits (large font / display size)
+            val baseSize = MaterialTheme.typography.titleMedium.fontSize
+            var fontSize by remember(dateText, baseSize) { mutableStateOf(baseSize) }
+            Text(
+                dateText,
+                style = MaterialTheme.typography.titleMedium,
+                fontSize = fontSize,
+                color = color,
+                maxLines = 1,
+                softWrap = false,
+                onTextLayout = { if (it.didOverflowWidth && fontSize.value > 11f) fontSize *= 0.9f }
+            )
         }
 
         StepButton(">", "Next day", color) { onMoveDays(1) }
         StepButton(">>", "Forward 2 days", color) { onMoveDays(2) }
 
-        IconButton(onClick = onTodayClick) {
+        IconButton(onClick = onTodayClick, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Default.DateRange, contentDescription = "Go to Today", tint = color)
         }
     }
@@ -52,7 +71,7 @@ fun DateNavigationRow(
 
 @Composable
 private fun StepButton(label: String, description: String, color: Color, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = description }) {
+    IconButton(onClick = onClick, modifier = Modifier.size(40.dp).semantics { contentDescription = description }) {
         Text(label, color = color, fontWeight = FontWeight.SemiBold)
     }
 }

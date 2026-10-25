@@ -734,82 +734,91 @@ private fun EditorPage(
             onVoice = onVoice
         )
 
-        // Info row: word count, last edit, recurring tasks
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = PAGE_PADDING),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val words = remember(viewModel.diaryText.text) { wordCount(viewModel.diaryText.text) }
-            val info = buildString {
-                append(if (words == 1) "1 word" else "$words words")
-                viewModel.lastEdited?.let { append(" · Last edited ${formatEdited(it)}") }
-            }
-            Text(
-                info,
-                style = MaterialTheme.typography.labelSmall,
-                color = textColor.copy(alpha = 0.55f),
-                modifier = Modifier.weight(1f)
-            )
-            if (viewModel.recurringTodos.isNotEmpty()) {
-                TextButton(onClick = onManageRecurring) {
+        // Everything below the toolbar scrolls as one page, so with the keyboard
+        // open the whole space above it is for writing
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val pageHeight = maxHeight
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                // Info row: word count, last edit, recurring tasks
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = PAGE_PADDING),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val words = remember(viewModel.diaryText.text) { wordCount(viewModel.diaryText.text) }
+                    val info = buildString {
+                        append(if (words == 1) "1 word" else "$words words")
+                        viewModel.lastEdited?.let { append(" · Last edited ${formatEdited(it)}") }
+                    }
                     Text(
-                        "Manage recurring tasks (${viewModel.recurringTodos.size})",
-                        fontSize = 12.sp
+                        info,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textColor.copy(alpha = 0.55f),
+                        modifier = Modifier.weight(1f)
                     )
+                    if (viewModel.recurringTodos.isNotEmpty()) {
+                        TextButton(onClick = onManageRecurring) {
+                            Text(
+                                "Manage recurring tasks (${viewModel.recurringTodos.size})",
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
                 }
+                MoodRow(
+                    selected = viewModel.currentMood,
+                    onSelect = viewModel::setMood,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+
+                BasicTextField(
+                    visualTransformation = MarkdownVisualTransformation(textColor, MaterialTheme.colorScheme.primary),
+                    value = viewModel.diaryText,
+                    onValueChange = viewModel::updateDiaryText,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // At least a full page, so tapping the empty lines still starts typing
+                        .heightIn(min = pageHeight)
+                        .navigationBarsPadding()
+                        .pointerInput(Unit) { detectTapGestures(onTap = { keyboardController?.show() }) },
+                    textStyle = diaryTextStyle(),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { inner ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = pageHeight)
+                                .diaryLines()
+                                .padding(PAGE_PADDING)
+                        ) {
+                            val todos = viewModel.todos.orEmpty()
+                            if (todos.isNotEmpty()) {
+                                Text(
+                                    text = "Tasks",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = textColor.copy(alpha = 0.45f),
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                )
+                            }
+                            todos.forEach { todo ->
+                                TaskRow(
+                                    todo = todo,
+                                    onToggle = { viewModel.toggleTodo(todo, date) },
+                                    // Daily tasks are deleted here; recurring ones from "Manage recurring tasks"
+                                    onDelete = if (todo.type == TodoType.DAILY) ({ viewModel.deleteTodo(todo) }) else null
+                                )
+                            }
+                            if (todos.isNotEmpty()) Spacer(Modifier.height(8.dp))
+                            PhotoStrip(photos = viewModel.attachments, fileOf = viewModel::photoFile, onOpen = onOpenPhoto)
+                            inner()
+                        }
+                    }
+                )
             }
         }
-        MoodRow(
-            selected = viewModel.currentMood,
-            onSelect = viewModel::setMood,
-            modifier = Modifier.padding(vertical = 4.dp)
-        )
-        HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
-
-        BasicTextField(
-            visualTransformation = MarkdownVisualTransformation(textColor, MaterialTheme.colorScheme.primary),
-            value = viewModel.diaryText,
-            onValueChange = viewModel::updateDiaryText,
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .pointerInput(Unit) { detectTapGestures(onTap = { keyboardController?.show() }) },
-            textStyle = diaryTextStyle(),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-            decorationBox = { inner ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .diaryLines()
-                        .padding(PAGE_PADDING)
-                ) {
-                    val todos = viewModel.todos.orEmpty()
-                    if (todos.isNotEmpty()) {
-                        Text(
-                            text = "Tasks",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = textColor.copy(alpha = 0.45f),
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                    }
-                    todos.forEach { todo ->
-                        TaskRow(
-                            todo = todo,
-                            onToggle = { viewModel.toggleTodo(todo, date) },
-                            // Daily tasks are deleted here; recurring ones from "Manage recurring tasks"
-                            onDelete = if (todo.type == TodoType.DAILY) ({ viewModel.deleteTodo(todo) }) else null
-                        )
-                    }
-                    if (todos.isNotEmpty()) Spacer(Modifier.height(8.dp))
-                    PhotoStrip(photos = viewModel.attachments, fileOf = viewModel::photoFile, onOpen = onOpenPhoto)
-                    inner()
-                }
-            }
-        )
     }
 }
 
