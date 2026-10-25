@@ -14,8 +14,9 @@ import kotlinx.coroutines.flow.first
  * How long tests wait for something to appear. Generous because CI machines
  * are much slower than a laptop, and the first test in each class also starts
  * Robolectric and Compose. Passing tests return as soon as the condition holds.
+ * GitHub's free runners are slower still, so waits are longer there.
  */
-const val TEST_TIMEOUT_MS = 20_000L
+val TEST_TIMEOUT_MS = if (System.getenv("CI") != null) 60_000L else 20_000L
 
 /** Fresh in-memory database using Room's normal background threads. */
 fun createTestDatabase(
