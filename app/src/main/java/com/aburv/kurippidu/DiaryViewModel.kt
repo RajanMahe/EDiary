@@ -7,6 +7,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aburv.kurippidu.data.*
+import com.aburv.kurippidu.data.progress.EntryWorkout
+import com.aburv.kurippidu.data.progress.ParsedSet
 import com.aburv.kurippidu.widget.TodayWidgetData
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -24,6 +26,10 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Plain / Gym / Rehab / Food: decides the "+" templates. */
     var diaryType by mutableStateOf(DiaryType.PLAIN)
+        private set
+
+    /** The open day's workout, for the "Review workout" sheet (gym and rehab diaries). */
+    var workout by mutableStateOf(EntryWorkout())
         private set
 
     var activeDiaryId by mutableStateOf(0)
@@ -126,7 +132,10 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             activeDiaryFlow.filterNotNull()
                 .flatMapLatest { repository.observeDiary(it) }
-                .collect { diaryType = it?.diaryType ?: DiaryType.PLAIN }
+                .collect {
+                    diaryType = it?.diaryType ?: DiaryType.PLAIN
+                    refreshWorkout()
+                }
         }
         viewModelScope.launch {
             // flatMapLatest drops the previous day's query, so fast date
@@ -229,6 +238,7 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
                 diaryText = TextFieldValue(entry?.content ?: "")
                 lastEdited = entry?.updatedAt
             }
+            refreshWorkout()
             val earlier = repository.onThisDay(diaryId, date)
             if (currentDate == date) memories = earlier
         }
@@ -269,6 +279,7 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
         val now = System.currentTimeMillis()
         repository.saveEntry(diaryId, date, text, updatedAt = now)
         if (currentDate == date) lastEdited = now
+        refreshWorkout()
 
         // If the user typed during the save, stay DIRTY so it saves again
         if (saveState == SaveState.SAVING) saveState = SaveState.SAVED
@@ -555,6 +566,31 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun photoFile(attachment: AttachmentEntity) = repository.attachmentFile(attachment)
+
+    /* ---------------- WORKOUT REVIEW ---------------- */
+
+    private val tracksWorkouts get() = diaryType == DiaryType.GYM || diaryType == DiaryType.REHAB
+
+    private fun refreshWorkout() {
+        val date = currentDate
+        if (!isReady || !tracksWorkouts) {
+            workout = EntryWorkout()
+            return
+        }
+        viewModelScope.launch {
+            val found = repository.workoutFor(activeDiaryId, date)
+            if (currentDate == date) workout = found
+        }
+    }
+
+    /** Saves the reviewed sets; the open day's text is saved first so they match. */
+    fun confirmWorkout(sets: List<ParsedSet>) {
+        viewModelScope.launch {
+            if (saveState == SaveState.DIRTY) saveCurrent()
+            repository.confirmWorkout(activeDiaryId, currentDate, sets)
+            refreshWorkout()
+        }
+    }
 
     /* ---------------- TEMPLATE INSERT ---------------- */
 

@@ -136,6 +136,8 @@ object FoodParser {
         if (name.isEmpty() || name.none(Char::isLetter)) return null
 
         val food = IndianFoodTable.find(name)
+        // "Felt full today": not food. "2 kozhukattai": food we don't know yet, kept as unknown
+        if (food == null && count == null) return null
         val sizeWord = sizeWords.find(name)?.groupValues?.get(1)?.lowercase()
         // "mini vada" is already a small piece in the table
         val sizeInName = sizeWord != null && food?.aliases?.any { sizeWord in it && it in name.lowercase() } == true

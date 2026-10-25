@@ -188,4 +188,21 @@ class MigrationTest {
         }
         db.close()
     }
+
+    @Test
+    fun `v12 database gets the workout tables in v13`() {
+        createFromSchema(12) { raw ->
+            raw.execSQL("INSERT INTO diaries (diaryId, title, createdAt, type) VALUES (1, 'Gym', 0, 'GYM')")
+            raw.execSQL("INSERT INTO entries (id, diaryOwnerId, date, content) VALUES (1, 1, '2026-01-05', 'Squat 20 kg 10 rep')")
+        }
+        val db = openWithRoom()
+        runBlocking {
+            val dao = db.diaryDao()
+            assertEquals(DiaryType.GYM, dao.getDiaryById(1)!!.diaryType)
+            assertEquals(emptyList<WorkoutSetEntity>(), dao.getWorkoutSets(1))
+            dao.insertWorkoutSets(listOf(WorkoutSetEntity(entryId = 1, position = 0, exercise = "Squat", side = "BOTH", weightKg = 20.0, reps = 10, sets = 1, minutes = null, warmUp = false)))
+            assertEquals("Squat", dao.getWorkoutSets(1).single().exercise)
+        }
+        db.close()
+    }
 }

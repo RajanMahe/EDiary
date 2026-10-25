@@ -209,8 +209,13 @@ class MainActivity : FragmentActivity() {
                     onExportStarted = keepLockOffWhilePicking,
                     onExportFinished = restoreLock,
                     onBack = { navController.popBackStack() },
-                    onOpenSettings = { navController.navigate("settings") }
+                    onOpenSettings = { navController.navigate("settings") },
+                    onOpenProgress = { navController.navigate("progress/$diaryId") }
                 )
+            }
+            composable("progress/{diaryId}") { backStackEntry ->
+                val diaryId = backStackEntry.arguments?.getString("diaryId")?.toIntOrNull() ?: return@composable
+                ProgressScreen(diaryId = diaryId, onBack = { navController.popBackStack() })
             }
             composable("settings") {
                 SettingsScreen(

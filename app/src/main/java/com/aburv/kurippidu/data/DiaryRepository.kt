@@ -5,10 +5,18 @@ import androidx.annotation.VisibleForTesting
 import androidx.room.withTransaction
 import com.aburv.kurippidu.data.backup.BackupDiary
 import com.aburv.kurippidu.data.backup.BackupEntry
+import com.aburv.kurippidu.data.backup.BackupSet
 import com.aburv.kurippidu.data.backup.BackupSettings
 import com.aburv.kurippidu.data.backup.BackupTodo
 import com.aburv.kurippidu.data.backup.FullBackup
 import com.aburv.kurippidu.data.backup.RestoreSummary
+import com.aburv.kurippidu.data.progress.EntryWorkout
+import com.aburv.kurippidu.data.progress.FoodDay
+import com.aburv.kurippidu.data.progress.FoodParser
+import com.aburv.kurippidu.data.progress.ParsedSet
+import com.aburv.kurippidu.data.progress.Side
+import com.aburv.kurippidu.data.progress.WorkoutDay
+import com.aburv.kurippidu.data.progress.WorkoutParser
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -306,6 +314,51 @@ class DiaryRepository internal constructor(
         )
     }
 
+    /* ---------------- WORKOUTS ---------------- */
+
+    /** One day's workout: the confirmed sets if reviewed, else what the parser read. */
+    suspend fun workoutFor(diaryId: Int, date: LocalDate): EntryWorkout {
+        val entry = dao.getEntryByDate(diaryId, date.toString()) ?: return EntryWorkout()
+        val parsed = WorkoutParser.parse(entry.content)
+        val review = dao.getWorkoutReview(entry.id)
+            ?: return EntryWorkout(parsed.sets, parsed.notes, confirmed = false, changedSinceReview = false)
+        return EntryWorkout(
+            dao.getWorkoutSets(entry.id).map { it.toParsed() }, parsed.notes,
+            confirmed = true, changedSinceReview = review.contentHash != entry.content.hashCode()
+        )
+    }
+
+    /** Saves the sets from the review sheet as this day's workout. */
+    suspend fun confirmWorkout(diaryId: Int, date: LocalDate, sets: List<ParsedSet>) {
+        val entry = dao.getEntryByDate(diaryId, date.toString()) ?: return
+        db.withTransaction {
+            dao.deleteWorkoutSets(entry.id)
+            dao.insertWorkoutSets(sets.mapIndexed { i, set -> WorkoutSetEntity.from(entry.id, i, set) })
+            dao.upsertWorkoutReview(WorkoutReviewEntity(entry.id, entry.content.hashCode()))
+        }
+    }
+
+    /** Every day with a workout, oldest first: confirmed sets where reviewed, parsed ones elsewhere. */
+    suspend fun workoutHistory(diaryId: Int): List<WorkoutDay> {
+        val confirmed = dao.getWorkoutSetsForDiary(diaryId).groupBy { it.entryId }
+        val reviewed = dao.getWorkoutReviewsForDiary(diaryId).map { it.entryId }.toSet()
+        return dao.getAllEntries(diaryId).mapNotNull { entry ->
+            val date = runCatching { LocalDate.parse(entry.date) }.getOrNull() ?: return@mapNotNull null
+            if (entry.id in reviewed) {
+                WorkoutDay(date, confirmed[entry.id].orEmpty().map { it.toParsed() }, confirmed = true)
+            } else {
+                WorkoutParser.parse(entry.content).sets.takeIf { it.isNotEmpty() }?.let { WorkoutDay(date, it, confirmed = false) }
+            }
+        }.filter { it.sets.isNotEmpty() }.sortedBy { it.date }
+    }
+
+    /** Every day's food, oldest first. Estimates only. */
+    suspend fun foodHistory(diaryId: Int): List<Pair<LocalDate, FoodDay>> =
+        dao.getAllEntries(diaryId).mapNotNull { entry ->
+            val date = runCatching { LocalDate.parse(entry.date) }.getOrNull() ?: return@mapNotNull null
+            FoodParser.parseDay(entry.content).takeIf { it.items.isNotEmpty() }?.let { date to it }
+        }.sortedBy { it.first }
+
     /* ---------------- FULL BACKUP ---------------- */
 
     /** Everything in the database, ready to be written as a backup file. */
@@ -325,7 +378,12 @@ class DiaryRepository internal constructor(
                                 content = entry.content,
                                 mood = entry.mood,
                                 updatedAt = entry.updatedAt,
-                                attachments = dao.getAttachments(entry.id).map { it.fileName }
+                                attachments = dao.getAttachments(entry.id).map { it.fileName },
+                                workout = dao.getWorkoutReview(entry.id)?.let {
+                                    dao.getWorkoutSets(entry.id).map { set ->
+                                        BackupSet(set.exercise, set.side, set.weightKg, set.reps, set.sets, set.minutes, set.warmUp)
+                                    }
+                                }
                             )
                         },
                         todos = dao.getAllTodos(diary.diaryId).map { todo ->
@@ -379,6 +437,12 @@ class DiaryRepository internal constructor(
                 val date = LocalDate.parse(entry.date)
                 saveEntry(diaryId, date, entry.content, updatedAt = entry.updatedAt ?: System.currentTimeMillis())
                 Mood.fromKey(entry.mood)?.let { setMood(diaryId, date, it) }
+                entry.workout?.let { sets ->
+                    confirmWorkout(diaryId, date, sets.map {
+                        ParsedSet(it.exercise, Side.entries.firstOrNull { s -> s.name == it.side } ?: Side.BOTH,
+                            it.weightKg, it.reps, it.sets, it.minutes, it.warmUp)
+                    })
+                }
                 // Photos: their files were unpacked into attachmentsDir before this runs
                 if (entry.attachments.isNotEmpty()) {
                     val saved = dao.getEntryByDate(diaryId, entry.date)!!

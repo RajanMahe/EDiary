@@ -16,9 +16,11 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         DiaryEntity::class,
         TodoEntity::class,
         AttachmentEntity::class,
-        EntryTagEntity::class
+        EntryTagEntity::class,
+        WorkoutSetEntity::class,
+        WorkoutReviewEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
@@ -235,9 +237,43 @@ abstract class DiaryDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 🔹 Migration 12 → 13
+         * Workouts the user reviewed and confirmed, for the Progress screen.
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS workout_sets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        entryId INTEGER NOT NULL,
+                        position INTEGER NOT NULL,
+                        exercise TEXT NOT NULL,
+                        side TEXT NOT NULL,
+                        weightKg REAL,
+                        reps INTEGER,
+                        sets INTEGER NOT NULL,
+                        minutes REAL,
+                        warmUp INTEGER NOT NULL,
+                        FOREIGN KEY(entryId) REFERENCES entries(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_workout_sets_entryId ON workout_sets (entryId)")
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS workout_reviews (
+                        entryId INTEGER PRIMARY KEY NOT NULL,
+                        contentHash INTEGER NOT NULL,
+                        reviewedAt INTEGER NOT NULL,
+                        FOREIGN KEY(entryId) REFERENCES entries(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """)
+            }
+        }
+
         val ALL_MIGRATIONS = arrayOf(
             MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12
+            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
+            MIGRATION_12_13
         )
 
         const val NAME = "diary_db"

@@ -74,7 +74,8 @@ fun DiaryScreen(
     onExportStarted: () -> Unit,
     onExportFinished: () -> Unit,
     onBack: () -> Unit,
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onOpenProgress: () -> Unit = {}
 ) {
     val diaryViewModel: DiaryViewModel = viewModel()
     val context = LocalContext.current
@@ -117,7 +118,8 @@ fun DiaryScreen(
         onExportStarted = onExportStarted,
         onExportFinished = onExportFinished,
         onBack = onBack,
-        onOpenSettings = onOpenSettings
+        onOpenSettings = onOpenSettings,
+        onOpenProgress = onOpenProgress
     )
 }
 
@@ -129,7 +131,8 @@ private fun DiaryContent(
     onExportStarted: () -> Unit,
     onExportFinished: () -> Unit,
     onBack: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenProgress: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -177,6 +180,7 @@ private fun DiaryContent(
     var showTemplates by remember { mutableStateOf(false) }
     var showRecurringDialog by remember { mutableStateOf(false) }
     var showRecurringManager by remember { mutableStateOf(false) }
+    var showWorkoutReview by remember { mutableStateOf(false) }
     var showReminder by remember { mutableStateOf(false) }
     var showWeekly by remember { mutableStateOf(false) }
     var hiddenMemoryDates by rememberSaveable { mutableStateOf(setOf<String>()) }
@@ -256,7 +260,8 @@ private fun DiaryContent(
                 onSettings = { showMenu = false; onOpenSettings() },
                 onBackup = { showMenu = false; showBackupScreen = true },
                 onReminder = { showMenu = false; showReminder = true },
-                onWeekly = { showMenu = false; showWeekly = true }
+                onWeekly = { showMenu = false; showWeekly = true },
+                onProgress = { showMenu = false; onOpenProgress() }
             )
         }
     ) { padding ->
@@ -309,7 +314,8 @@ private fun DiaryContent(
                                         onManageRecurring = { showRecurringManager = true },
                                         onAddPhoto = { showPhotoSource = true },
                                         onVoice = ::startVoice,
-                                        onOpenPhoto = { viewingPhoto = it }
+                                        onOpenPhoto = { viewingPhoto = it },
+                                        onReviewWorkout = { showWorkoutReview = true }
                                     )
                                 } else {
                                     PreviewPage(viewModel, onOpenPhoto = { viewingPhoto = it })
@@ -435,6 +441,17 @@ private fun DiaryContent(
         )
     }
 
+    if (showWorkoutReview) {
+        WorkoutReviewSheet(
+            workout = viewModel.workout,
+            onConfirm = { sets ->
+                viewModel.confirmWorkout(sets)
+                showWorkoutReview = false
+            },
+            onDismiss = { showWorkoutReview = false }
+        )
+    }
+
     if (showRecurringManager) {
         RecurringTaskManagerSheet(viewModel = viewModel, onDismiss = { showRecurringManager = false })
     }
@@ -493,7 +510,8 @@ private fun DiaryTopBar(
     onSettings: () -> Unit,
     onBackup: () -> Unit,
     onReminder: () -> Unit,
-    onWeekly: () -> Unit
+    onWeekly: () -> Unit,
+    onProgress: () -> Unit
 ) {
     val barText = MaterialTheme.colorScheme.onPrimaryContainer
     TopAppBar(
@@ -546,6 +564,7 @@ private fun DiaryTopBar(
                     Icon(Icons.Default.MoreVert, contentDescription = "More")
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { onMenu(false) }) {
+                    DropdownMenuItem(text = { Text("Progress") }, onClick = onProgress)
                     DropdownMenuItem(text = { Text("This week") }, onClick = onWeekly)
                     DropdownMenuItem(text = { Text("Daily reminder") }, onClick = onReminder)
                     DropdownMenuItem(text = { Text("Backup & Restore") }, onClick = onBackup)
@@ -712,7 +731,8 @@ private fun EditorPage(
     onManageRecurring: () -> Unit,
     onAddPhoto: () -> Unit,
     onVoice: () -> Unit,
-    onOpenPhoto: (com.aburv.kurippidu.data.AttachmentEntity) -> Unit
+    onOpenPhoto: (com.aburv.kurippidu.data.AttachmentEntity) -> Unit,
+    onReviewWorkout: () -> Unit
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val textColor = MaterialTheme.colorScheme.onBackground
@@ -762,6 +782,11 @@ private fun EditorPage(
                         }
                     }
                 }
+                WorkoutStatusChip(
+                    workout = viewModel.workout,
+                    onClick = onReviewWorkout,
+                    modifier = Modifier.padding(horizontal = PAGE_PADDING)
+                )
                 MoodRow(
                     selected = viewModel.currentMood,
                     onSelect = viewModel::setMood,

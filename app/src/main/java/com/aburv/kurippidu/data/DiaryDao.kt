@@ -163,6 +163,38 @@ interface DiaryDao {
     @Query("SELECT fileName FROM attachments")
     suspend fun getAllAttachmentFiles(): List<String>
 
+    /* ---------------- WORKOUTS ---------------- */
+
+    @Query("SELECT * FROM workout_sets WHERE entryId = :entryId ORDER BY position")
+    suspend fun getWorkoutSets(entryId: Int): List<WorkoutSetEntity>
+
+    @Query("SELECT * FROM workout_reviews WHERE entryId = :entryId")
+    suspend fun getWorkoutReview(entryId: Int): WorkoutReviewEntity?
+
+    @Query("""
+        SELECT workout_sets.* FROM workout_sets
+        JOIN entries ON entries.id = workout_sets.entryId
+        WHERE entries.diaryOwnerId = :diaryId
+        ORDER BY workout_sets.entryId, workout_sets.position
+    """)
+    suspend fun getWorkoutSetsForDiary(diaryId: Int): List<WorkoutSetEntity>
+
+    @Query("""
+        SELECT workout_reviews.* FROM workout_reviews
+        JOIN entries ON entries.id = workout_reviews.entryId
+        WHERE entries.diaryOwnerId = :diaryId
+    """)
+    suspend fun getWorkoutReviewsForDiary(diaryId: Int): List<WorkoutReviewEntity>
+
+    @Query("DELETE FROM workout_sets WHERE entryId = :entryId")
+    suspend fun deleteWorkoutSets(entryId: Int)
+
+    @Insert
+    suspend fun insertWorkoutSets(sets: List<WorkoutSetEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWorkoutReview(review: WorkoutReviewEntity)
+
     /* ---------------- TODOS ---------------- */
 
     @Insert
