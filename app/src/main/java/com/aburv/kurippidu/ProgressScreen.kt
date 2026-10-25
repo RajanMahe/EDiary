@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -17,6 +18,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aburv.kurippidu.data.DiaryRepository
 import com.aburv.kurippidu.data.DiaryType
+import com.aburv.kurippidu.data.coach.CoachInput
+import com.aburv.kurippidu.data.coach.CoachRules
+import com.aburv.kurippidu.data.coach.CoachTip
+import com.aburv.kurippidu.data.coach.TipKind
 import com.aburv.kurippidu.data.diaryType
 import com.aburv.kurippidu.data.progress.BalanceRow
 import com.aburv.kurippidu.data.progress.FoodDay
@@ -44,8 +49,10 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         private set
     var isLoading by mutableStateOf(true)
         private set
+    var tips by mutableStateOf<List<CoachTip>>(emptyList())
+        private set
 
-    fun load(diaryId: Int) {
+    fun load(diaryId: Int, today: LocalDate = LocalDate.now()) {
         viewModelScope.launch {
             repository.getDiary(diaryId)?.let {
                 title = it.title
@@ -53,6 +60,10 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
             }
             workouts = repository.workoutHistory(diaryId)
             food = repository.foodHistory(diaryId)
+            val entries = repository.getAllEntries(diaryId).mapNotNull { entry ->
+                runCatching { LocalDate.parse(entry.date) }.getOrNull()?.let { it to entry.content }
+            }
+            tips = CoachRules.tips(CoachInput(type, today, workouts, food, entries))
             isLoading = false
         }
     }
@@ -70,7 +81,7 @@ fun ProgressScreen(
     today: LocalDate = LocalDate.now(),
     viewModel: ProgressViewModel = viewModel()
 ) {
-    LaunchedEffect(diaryId) { viewModel.load(diaryId) }
+    LaunchedEffect(diaryId) { viewModel.load(diaryId, today) }
 
     // Plain diaries can hold either kind, so they get both tabs
     val tabs = when (viewModel.type) {
@@ -98,8 +109,8 @@ fun ProgressScreen(
             }
             when {
                 viewModel.isLoading -> Box(Modifier.fillMaxSize()) { CircularProgressIndicator(Modifier.padding(32.dp)) }
-                tabs[tab.coerceAtMost(tabs.lastIndex)] == "Workout" -> WorkoutProgress(viewModel.workouts, today)
-                else -> FoodProgress(viewModel.food, today)
+                tabs[tab.coerceAtMost(tabs.lastIndex)] == "Workout" -> WorkoutProgress(viewModel.workouts, today, viewModel.tips)
+                else -> FoodProgress(viewModel.food, today, viewModel.tips)
             }
         }
     }
@@ -108,7 +119,7 @@ fun ProgressScreen(
 /* ---------------- WORKOUT ---------------- */
 
 @Composable
-private fun WorkoutProgress(days: List<WorkoutDay>, today: LocalDate) {
+private fun WorkoutProgress(days: List<WorkoutDay>, today: LocalDate, tips: List<CoachTip>) {
     if (days.isEmpty()) {
         EmptyState("No workouts yet", "Write your sets in the diary, like \"Squat 20 kg 10 rep 3 set\" or \"12.5 - 15\". They show up here.")
         return
@@ -117,6 +128,7 @@ private fun WorkoutProgress(days: List<WorkoutDay>, today: LocalDate) {
     var selected by remember(exercises) { mutableStateOf(exercises.firstOrNull()) }
 
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        tipItems(tips)
         item { WorkoutSummary(days, today) }
 
         if (exercises.isNotEmpty()) {
@@ -178,7 +190,7 @@ private fun WorkoutSummary(days: List<WorkoutDay>, today: LocalDate) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row {
-                Stat("$week", "days this week", Modifier.weight(1f))
+                Stat("$week", if (week == 1) "day this week" else "days this week", Modifier.weight(1f))
                 Stat("$month", "in 4 weeks", Modifier.weight(1f))
                 Stat(
                     when (since) { null -> "–"; 0L -> "Today"; 1L -> "1 day"; else -> "$since days" },
@@ -289,7 +301,7 @@ private fun BalanceCard(row: BalanceRow) {
 /* ---------------- FOOD ---------------- */
 
 @Composable
-private fun FoodProgress(days: List<Pair<LocalDate, FoodDay>>, today: LocalDate) {
+private fun FoodProgress(days: List<Pair<LocalDate, FoodDay>>, today: LocalDate, tips: List<CoachTip>) {
     if (days.isEmpty()) {
         EmptyState("No food logged yet", "Write what you ate, like \"2 idli, sambar\" or \"250 ml tender coconut\". It shows up here.")
         return
@@ -298,6 +310,7 @@ private fun FoodProgress(days: List<Pair<LocalDate, FoodDay>>, today: LocalDate)
     val recent = days.takeLast(14)
 
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        tipItems(tips)
         item {
             Text(
                 "Estimates from typical Indian food values, not exact counts and not medical advice.",
@@ -354,6 +367,50 @@ private fun FoodProgress(days: List<Pair<LocalDate, FoodDay>>, today: LocalDate)
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+/* ---------------- COACH TIPS ---------------- */
+
+private const val TIPS_SHOWN = 4
+
+/** The coach's tips at the top of the list: the most important few, the rest behind "Show all". */
+private fun LazyListScope.tipItems(tips: List<CoachTip>) {
+    if (tips.isEmpty()) return
+    item { SectionTitle("Coach tips") }
+    item {
+        var showAll by remember { mutableStateOf(false) }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            (if (showAll) tips else tips.take(TIPS_SHOWN)).forEach { TipCard(it) }
+            if (tips.size > TIPS_SHOWN) {
+                TextButton(onClick = { showAll = !showAll }) {
+                    Text(if (showAll) "Show fewer" else "Show all ${tips.size} tips")
+                }
+            }
+            Text(
+                "Tips come from simple rules on what you wrote. They're general guidance, not medical advice.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun TipCard(tip: CoachTip) {
+    val colors = when (tip.kind) {
+        TipKind.CARE -> CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+        TipKind.NUDGE -> CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        TipKind.PRAISE -> CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+    }
+    Card(Modifier.fillMaxWidth(), colors = colors) {
+        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(tip.emoji, style = MaterialTheme.typography.titleLarge)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(tip.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(tip.body, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
