@@ -197,6 +197,21 @@ interface DiaryDao {
 
     /* ---------------- ENTRY ANALYSIS (cache) ---------------- */
 
+    /** Changes whenever an entry of the diary is added, edited or deleted. */
+    @Query("""
+        SELECT COUNT(*) || ':' || IFNULL(MAX(updatedAt), 0) || ':' || IFNULL(SUM(LENGTH(content)), 0)
+        FROM entries WHERE diaryOwnerId = :diaryId
+    """)
+    suspend fun entriesFingerprint(diaryId: Int): String
+
+    /** Changes whenever a workout is reviewed again. */
+    @Query("""
+        SELECT COUNT(*) || ':' || IFNULL(MAX(workout_reviews.reviewedAt), 0) FROM workout_reviews
+        JOIN entries ON entries.id = workout_reviews.entryId
+        WHERE entries.diaryOwnerId = :diaryId
+    """)
+    suspend fun reviewsFingerprint(diaryId: Int): String
+
     @Query("""
         SELECT entry_analysis.* FROM entry_analysis
         JOIN entries ON entries.id = entry_analysis.entryId

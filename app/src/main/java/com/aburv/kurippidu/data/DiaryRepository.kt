@@ -359,6 +359,10 @@ class DiaryRepository internal constructor(
         return result
     }
 
+    /** Same value until something in the diary that Progress shows changes. */
+    suspend fun progressFingerprint(diaryId: Int): String =
+        dao.entriesFingerprint(diaryId) + "|" + dao.reviewsFingerprint(diaryId) + "|" + dao.getDiaryById(diaryId)?.type
+
     /** Every day with a workout, oldest first: confirmed sets where reviewed, parsed ones elsewhere. */
     suspend fun workoutHistory(diaryId: Int): List<WorkoutDay> {
         val confirmed = dao.getWorkoutSetsForDiary(diaryId).groupBy { it.entryId }

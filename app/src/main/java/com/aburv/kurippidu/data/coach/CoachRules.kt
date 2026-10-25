@@ -133,8 +133,8 @@ object CoachRules {
         }
 
         // Same weight for weeks
-        ProgressStats.exercises(days).forEach { exercise ->
-            val sessions = ProgressStats.sessions(days, exercise).filter { it.bestWeightKg != null }
+        ProgressStats.sessionsByExercise(days).forEach { (exercise, all) ->
+            val sessions = all.filter { it.bestWeightKg != null }
             val recent = sessions.filter { ChronoUnit.DAYS.between(it.date, today) <= 21 }
             if (recent.size < 3) return@forEach
             val span = ChronoUnit.DAYS.between(recent.first().date, recent.last().date)

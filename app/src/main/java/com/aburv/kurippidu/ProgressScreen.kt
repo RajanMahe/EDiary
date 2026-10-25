@@ -58,7 +58,7 @@ data class WorkoutView(
             val exercises = ProgressStats.exercises(days)
             return WorkoutView(
                 days, exercises,
-                exercises.associateWith { ProgressStats.sessions(days, it) },
+                ProgressStats.sessionsByExercise(days),
                 ProgressStats.balance(days),
                 ProgressStats.personalBests(days).take(6),
                 ProgressStats.weeklyVolume(days).takeLast(8),
@@ -73,6 +73,18 @@ data class WorkoutView(
 
 /** Everything the Food tab shows. */
 data class FoodView(val recent: List<Pair<LocalDate, FoodDay>>, val summary: FoodSummary, val isEmpty: Boolean)
+
+/** What Progress showed last, per diary, kept while the app is open. */
+private data class ProgressResult(
+    val fingerprint: String,
+    val title: String,
+    val type: DiaryType,
+    val workouts: WorkoutView,
+    val food: FoodView,
+    val tips: List<CoachTip>
+)
+
+private val lastResults = java.util.concurrent.ConcurrentHashMap<Int, ProgressResult>()
 
 class ProgressViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = DiaryRepository.get(application)
@@ -92,30 +104,41 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
 
     fun load(diaryId: Int, today: LocalDate = LocalDate.now()) {
         viewModelScope.launch {
-            repository.getDiary(diaryId)?.let {
-                title = it.title
-                type = it.diaryType
-            }
-            // Only read what this kind of diary shows
+            // Coming back: show what was there straight away
+            lastResults[diaryId]?.let(::show)
+            val fingerprint = repository.progressFingerprint(diaryId) + "|" + today
+            if (lastResults[diaryId]?.fingerprint == fingerprint) return@launch // nothing changed
+
+            val diary = repository.getDiary(diaryId) ?: return@launch
+            val type = diary.diaryType
+            // Only read what this kind of diary shows; unchanged entries come from the stored readings
             val workoutDays = if (type != DiaryType.FOOD) repository.workoutHistory(diaryId) else emptyList()
             val foodDays = if (type == DiaryType.FOOD || type == DiaryType.PLAIN) repository.foodHistory(diaryId) else emptyList()
             val entries = repository.getAllEntries(diaryId)
             // Charts, balance and tips are worked out once, in the background
-            val (workoutView, foodView, coachTips) = withContext(Dispatchers.Default) {
+            val result = withContext(Dispatchers.Default) {
                 val dated = entries.mapNotNull { entry ->
                     runCatching { LocalDate.parse(entry.date) }.getOrNull()?.let { it to entry.content }
                 }
-                Triple(
+                ProgressResult(
+                    fingerprint, diary.title, type,
                     WorkoutView.of(workoutDays, today),
                     FoodView(foodDays.takeLast(14), FoodSummary.of(foodDays, today), foodDays.isEmpty()),
                     CoachRules.tips(CoachInput(type, today, workoutDays, foodDays, dated))
                 )
             }
-            workouts = workoutView
-            food = foodView
-            tips = coachTips
-            isLoading = false
+            lastResults[diaryId] = result
+            show(result)
         }
+    }
+
+    private fun show(result: ProgressResult) {
+        title = result.title
+        type = result.type
+        workouts = result.workouts
+        food = result.food
+        tips = result.tips
+        isLoading = false
     }
 }
 
