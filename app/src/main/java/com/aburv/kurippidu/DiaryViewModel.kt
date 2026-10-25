@@ -22,6 +22,10 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
 
     /* ---------------- ACTIVE DIARY ---------------- */
 
+    /** Plain / Gym / Rehab / Food: decides the "+" templates. */
+    var diaryType by mutableStateOf(DiaryType.PLAIN)
+        private set
+
     var activeDiaryId by mutableStateOf(0)
         private set
 
@@ -118,6 +122,11 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
             activeDiaryFlow.filterNotNull()
                 .flatMapLatest { repository.observeTags(it) }
                 .collect { tags = it }
+        }
+        viewModelScope.launch {
+            activeDiaryFlow.filterNotNull()
+                .flatMapLatest { repository.observeDiary(it) }
+                .collect { diaryType = it?.diaryType ?: DiaryType.PLAIN }
         }
         viewModelScope.launch {
             // flatMapLatest drops the previous day's query, so fast date
@@ -550,7 +559,7 @@ class DiaryViewModel(application: Application) : AndroidViewModel(application) {
     /* ---------------- TEMPLATE INSERT ---------------- */
 
     fun insertTemplate(template: DiaryTemplate) {
-        val insertion = "\n${template.emoji} ${template.label}:\n"
+        val insertion = "\n${template.emoji} ${template.label}:\n${template.body}"
         val current = diaryText.text
         val cursorPos = diaryText.selection.max
         val newText = current.substring(0, cursorPos) + insertion + current.substring(cursorPos)

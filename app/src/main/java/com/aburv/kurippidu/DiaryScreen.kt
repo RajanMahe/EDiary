@@ -325,11 +325,7 @@ private fun DiaryContent(
     /* ---------------- SHEETS & DIALOGS ---------------- */
 
     if (showTemplates) {
-        val templates = listOf(
-            DiaryTemplate("Workout", "🏋️"),
-            DiaryTemplate("Food", "🍔"),
-            DiaryTemplate("Spent", "💸")
-        )
+        val templates = templatesFor(viewModel.diaryType)
         ModalBottomSheet(onDismissRequest = { showTemplates = false }) {
             templates.forEach { template ->
                 ListItem(

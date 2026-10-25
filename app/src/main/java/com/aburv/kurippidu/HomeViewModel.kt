@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.aburv.kurippidu.data.DiaryOwnerEntity
 import com.aburv.kurippidu.data.DiaryRepository
+import com.aburv.kurippidu.data.DiaryType
 import kotlinx.coroutines.launch
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -39,9 +40,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun createDiary(title: String) {
-        if (title.isBlank()) return
-        viewModelScope.launch { repository.createDiary(title) }
+    /** A blank title gets the type's name ("Gym log"). */
+    fun createDiary(title: String, type: DiaryType = DiaryType.PLAIN) {
+        viewModelScope.launch { repository.createDiary(title, type) }
+    }
+
+    fun setDiaryType(diary: DiaryOwnerEntity, type: DiaryType) {
+        viewModelScope.launch { repository.setDiaryType(diary, type) }
     }
 
     fun deleteDiary(diary: DiaryOwnerEntity) {

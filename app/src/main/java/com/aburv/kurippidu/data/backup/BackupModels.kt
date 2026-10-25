@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
  * - 1: a plain JSON array of {date, content} for one diary (still readable)
  * - 2: this object, as a .json file
  * - 3: same object inside a .zip together with the photos (attachments/…)
+ * - 4: each diary also has its type (Plain / Gym / Rehab / Food)
  *
  * New fields must have defaults so older files keep decoding.
  */
@@ -22,7 +23,7 @@ data class FullBackup(
 ) {
     companion object {
         const val APP_ID = "kurippidu"
-        const val CURRENT_VERSION = 3
+        const val CURRENT_VERSION = 4
     }
 }
 
@@ -37,6 +38,8 @@ data class BackupSettings(
 data class BackupDiary(
     val title: String,
     val createdAt: Long = 0,
+    /** Added in version 4; older files restore as plain diaries. */
+    val type: String = "PLAIN",
     val entries: List<BackupEntry> = emptyList(),
     val todos: List<BackupTodo> = emptyList()
 )

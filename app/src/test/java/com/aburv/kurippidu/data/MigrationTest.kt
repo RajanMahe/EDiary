@@ -167,4 +167,25 @@ class MigrationTest {
         }
         db.close()
     }
+
+    @Test
+    fun `v11 diaries get a type guessed from their name in v12`() {
+        createFromSchema(11) { raw ->
+            raw.execSQL("INSERT INTO diaries (diaryId, title, createdAt) VALUES (1, 'Gym log', 0)")
+            raw.execSQL("INSERT INTO diaries (diaryId, title, createdAt) VALUES (2, 'ACL Rehab', 0)")
+            raw.execSQL("INSERT INTO diaries (diaryId, title, createdAt) VALUES (3, 'Meals', 0)")
+            raw.execSQL("INSERT INTO diaries (diaryId, title, createdAt) VALUES (4, 'Thoughts', 0)")
+            raw.execSQL("INSERT INTO entries (id, diaryOwnerId, date, content) VALUES (1, 1, '2026-01-05', 'Squats')")
+        }
+        val db = openWithRoom()
+        runBlocking {
+            val dao = db.diaryDao()
+            assertEquals(
+                listOf(DiaryType.GYM, DiaryType.REHAB, DiaryType.FOOD, DiaryType.PLAIN),
+                dao.getAllDiaries().sortedBy { it.diaryId }.map { it.diaryType }
+            )
+            assertEquals("Squats", dao.getEntryByDate(1, "2026-01-05")!!.content)
+        }
+        db.close()
+    }
 }

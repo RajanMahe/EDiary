@@ -69,6 +69,43 @@ class FullBackupRepositoryTest {
     }
 
     @Test
+    fun `diary types survive a backup, and old files restore as plain`() = runBlocking {
+        val oldDb = createTestDatabase()
+        val oldRepo = DiaryRepository(oldDb)
+        oldRepo.createDiary("Legs", com.aburv.kurippidu.data.DiaryType.REHAB)
+        val file = BackupCodec.encode(oldRepo.exportFullBackup(BackupSettings(), "now"))
+        oldDb.close()
+
+        val newDb = createTestDatabase()
+        val newRepo = DiaryRepository(newDb)
+        newRepo.restoreFullBackup((BackupCodec.decode(file) as ParsedBackup.Full).backup)
+        newRepo.restoreFullBackup(FullBackup(exportedAt = "x", diaries = listOf(BackupDiary(title = "Old file"))))
+
+        val types = newDb.diaryDao().getAllDiaries().associate { it.title to it.type }
+        assertEquals(mapOf("Legs" to "REHAB", "Old file" to "PLAIN"), types)
+        newDb.close()
+    }
+
+    @Test
+    fun `a plain diary takes the type from a backup, a chosen type is kept`() = runBlocking {
+        val db = createTestDatabase()
+        val repo = DiaryRepository(db)
+        repo.createDiary("Plain one")
+        repo.createDiary("Chosen", com.aburv.kurippidu.data.DiaryType.FOOD)
+
+        repo.restoreFullBackup(
+            FullBackup(
+                exportedAt = "x",
+                diaries = listOf(BackupDiary(title = "Plain one", type = "GYM"), BackupDiary(title = "Chosen", type = "GYM"))
+            )
+        )
+
+        val types = db.diaryDao().getAllDiaries().associate { it.title to it.type }
+        assertEquals(mapOf("Plain one" to "GYM", "Chosen" to "FOOD"), types)
+        db.close()
+    }
+
+    @Test
     fun `restoring the same file twice adds nothing`() = runBlocking {
         val db = createTestDatabase()
         val repo = DiaryRepository(db)

@@ -2,6 +2,8 @@ package com.aburv.kurippidu
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import com.aburv.kurippidu.data.DiaryType
+import com.aburv.kurippidu.data.diaryType
 import com.aburv.kurippidu.testutil.MainDispatcherRule
 import com.aburv.kurippidu.testutil.TestRepository
 import com.aburv.kurippidu.testutil.eventually
@@ -56,14 +58,26 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `blank names are ignored`() {
-        viewModel.createDiary("   ")
-        viewModel.createDiary("Food")
-        eventually { assertEquals(listOf("Food"), viewModel.diaries.map { it.title }) }
+    fun `a blank name takes the type's name and blank renames are ignored`() {
+        viewModel.createDiary("   ", DiaryType.FOOD)
+        eventually { assertEquals(listOf("Food diary"), viewModel.diaries.map { it.title }) }
+        assertEquals(DiaryType.FOOD, viewModel.diaries.single().diaryType)
 
+        viewModel.renameDiary(viewModel.diaries.single(), "Food")
+        eventually { assertEquals(listOf("Food"), viewModel.diaries.map { it.title }) }
         viewModel.renameDiary(viewModel.diaries.single(), "")
         Thread.sleep(100)
         assertEquals(listOf("Food"), viewModel.diaries.map { it.title })
+    }
+
+    @Test
+    fun `diary type can be chosen and changed`() {
+        viewModel.createDiary("Knee", DiaryType.GYM)
+        eventually { assertEquals(listOf(DiaryType.GYM), viewModel.diaries.map { it.diaryType }) }
+
+        viewModel.setDiaryType(viewModel.diaries.single(), DiaryType.REHAB)
+        eventually { assertEquals(listOf(DiaryType.REHAB), viewModel.diaries.map { it.diaryType }) }
+        assertEquals("Knee", viewModel.diaries.single().title)
     }
 
     @Test

@@ -35,6 +35,9 @@ interface DiaryDao {
     @Query("SELECT * FROM diaries WHERE diaryId = :id")
     suspend fun getDiaryById(id: Int): DiaryOwnerEntity?
 
+    @Query("SELECT * FROM diaries WHERE diaryId = :id")
+    fun observeDiary(id: Int): Flow<DiaryOwnerEntity?>
+
     @Query("SELECT * FROM diaries WHERE title = :title ORDER BY diaryId LIMIT 1")
     suspend fun getDiaryByTitle(title: String): DiaryOwnerEntity?
 

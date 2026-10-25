@@ -42,8 +42,14 @@ class DiaryRepository internal constructor(
         }
     }
 
-    suspend fun createDiary(title: String) {
-        dao.insertDiary(DiaryOwnerEntity(title = title.trim()))
+    fun observeDiary(diaryId: Int): Flow<DiaryOwnerEntity?> = dao.observeDiary(diaryId)
+
+    suspend fun createDiary(title: String, type: DiaryType = DiaryType.PLAIN) {
+        dao.insertDiary(DiaryOwnerEntity(title = title.trim().ifEmpty { type.suggestedTitle }, type = type.name))
+    }
+
+    suspend fun setDiaryType(diary: DiaryOwnerEntity, type: DiaryType) {
+        dao.updateDiary(diary.copy(type = type.name))
     }
 
     suspend fun renameDiary(diary: DiaryOwnerEntity, newTitle: String) {
@@ -312,6 +318,7 @@ class DiaryRepository internal constructor(
                     BackupDiary(
                         title = diary.title,
                         createdAt = diary.createdAt,
+                        type = diary.type,
                         entries = dao.getAllEntries(diary.diaryId).map { entry ->
                             BackupEntry(
                                 date = entry.date,
@@ -353,11 +360,17 @@ class DiaryRepository internal constructor(
         var todos = 0
 
         backup.diaries.forEach { diary ->
-            val diaryId = dao.getDiaryByTitle(diary.title)?.diaryId
+            val sameName = dao.getDiaryByTitle(diary.title)
+            // A plain diary takes the backup's type; a type chosen on this phone is kept
+            if (sameName != null && sameName.diaryType == DiaryType.PLAIN && diary.type != DiaryType.PLAIN.name) {
+                dao.updateDiary(sameName.copy(type = DiaryType.fromKey(diary.type).name))
+            }
+            val diaryId = sameName?.diaryId
                 ?: dao.insertDiary(
                     DiaryOwnerEntity(
                         title = diary.title,
-                        createdAt = diary.createdAt.takeIf { it > 0 } ?: System.currentTimeMillis()
+                        createdAt = diary.createdAt.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                        type = DiaryType.fromKey(diary.type).name
                     )
                 ).toInt()
             diaries++
