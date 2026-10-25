@@ -55,7 +55,8 @@ android {
             enableUnitTestCoverage = true
             // Installs next to the real app instead of replacing it
             applicationIdSuffix = ".debug"
-            resValue("string", "app_name", "Kurippidu (debug)")
+            // Same name as the store build; the ".debug" id still lets both be installed side by side
+            resValue("string", "app_name", "Kurippidu")
         }
         release {
             isMinifyEnabled = true
