@@ -6,7 +6,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -61,21 +60,22 @@ fun EditorToolbar(
             Text("☐", color = color, fontSize = 20.sp)
         }
 
-        VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp))
+        VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 2.dp))
 
-        IconButton(onClick = onAddPhoto, enabled = enabled) {
-            Icon(painterResource(R.drawable.ic_add_photo), contentDescription = "Add photo")
-        }
-        IconButton(onClick = onVoice, enabled = enabled) {
-            Icon(painterResource(R.drawable.ic_mic), contentDescription = "Speak to write")
-        }
-        IconButton(onClick = onAddTodoClick, enabled = enabled) {
+        // Tasks first: on narrow screens (or large display size) the end of the row is cut off
+        IconButton(onClick = onAddTodoClick, enabled = enabled, modifier = ToolSize) {
             Icon(Icons.Default.AddCircle, contentDescription = "Add Todo")
         }
-        IconButton(onClick = onAddRecurringClick, enabled = enabled) {
-            Icon(Icons.Default.DateRange, contentDescription = "Add Recurring Task", tint = color)
+        IconButton(onClick = onAddRecurringClick, enabled = enabled, modifier = ToolSize) {
+            Icon(painterResource(R.drawable.ic_repeat), contentDescription = "Add Recurring Task", tint = color)
         }
-        IconButton(onClick = onAddType, enabled = enabled) {
+        IconButton(onClick = onAddPhoto, enabled = enabled, modifier = ToolSize) {
+            Icon(painterResource(R.drawable.ic_add_photo), contentDescription = "Add photo")
+        }
+        IconButton(onClick = onVoice, enabled = enabled, modifier = ToolSize) {
+            Icon(painterResource(R.drawable.ic_mic), contentDescription = "Speak to write")
+        }
+        IconButton(onClick = onAddType, enabled = enabled, modifier = ToolSize) {
             Icon(Icons.Default.Add, contentDescription = "Add")
         }
     }
@@ -91,6 +91,9 @@ private fun TextTool(
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.semantics { contentDescription = description }
+        modifier = ToolSize.semantics { contentDescription = description }
     ) { content() }
 }
+
+/** 9 tools x 40 dp fit a 375 dp wide screen; the row still scrolls if narrower. */
+private val ToolSize = Modifier.size(40.dp)
