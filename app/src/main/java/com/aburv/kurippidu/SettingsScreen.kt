@@ -56,6 +56,8 @@ fun SettingsScreen(
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showFontDialog by remember { mutableStateOf(false) }
+    val speechLanguage by BackupPreferences.speechLanguage(context).collectAsState(initial = null)
+    var showSpeechDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -80,6 +82,9 @@ fun SettingsScreen(
             }
             item {
                 Item("Text size", fontSize.label) { showFontDialog = true }
+            }
+            item {
+                Item("Speech language", (speechLanguage ?: SpeechLanguage.PHONE).display) { showSpeechDialog = true }
             }
 
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
@@ -167,6 +172,20 @@ fun SettingsScreen(
             onDismiss = { showThemeDialog = false }
         )
     }
+    if (showSpeechDialog) {
+        ChoiceDialog(
+            title = "Speech language",
+            options = SpeechLanguage.entries,
+            selected = speechLanguage ?: SpeechLanguage.PHONE,
+            label = { it.display },
+            onSelect = { language ->
+                showSpeechDialog = false
+                scope.launch { BackupPreferences.setSpeechLanguage(context, language) }
+            },
+            onDismiss = { showSpeechDialog = false }
+        )
+    }
+
     if (showFontDialog) {
         ChoiceDialog(
             title = "Text size",

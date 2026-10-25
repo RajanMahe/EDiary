@@ -18,6 +18,7 @@ private fun lastSearchKey(diaryId: Int) = stringPreferencesKey("last_search_$dia
     stringPreferencesKey("last_opened_date_$diaryId")
 
     private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
+    private val SPEECH_LANGUAGE = stringPreferencesKey("speech_language")
 
     private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
     private val COACH_TIPS = booleanPreferencesKey("coach_tips_weekly")
@@ -139,6 +140,21 @@ private fun lastSearchKey(diaryId: Int) = stringPreferencesKey("last_search_$dia
 
     suspend fun setFontSize(context: Context, size: DiaryFontSize) {
         context.dataStore.edit { it[FONT_SIZE] = size.name }
+    }
+
+    /* ---------------- SPEAK TO WRITE ---------------- */
+
+    /** The language for the mic button; null until the user has picked one. */
+    fun speechLanguage(context: Context): Flow<SpeechLanguage?> =
+        context.dataStore.data.map { SpeechLanguage.fromKey(it[SPEECH_LANGUAGE]) }
+
+    suspend fun setSpeechLanguage(context: Context, language: SpeechLanguage) {
+        context.dataStore.edit { it[SPEECH_LANGUAGE] = language.name }
+    }
+
+    @androidx.annotation.VisibleForTesting
+    suspend fun clearSpeechLanguage(context: Context) {
+        context.dataStore.edit { it.remove(SPEECH_LANGUAGE) }
     }
 
     /* ---------------- COACH TIPS ---------------- */

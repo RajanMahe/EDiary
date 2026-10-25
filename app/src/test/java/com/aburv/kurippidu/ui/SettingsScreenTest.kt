@@ -130,6 +130,15 @@ class SettingsScreenTest {
     }
 
     @Test
+    fun `speech language can be chosen`() {
+        compose.onNodeWithText("Speech language").tap()
+        compose.onNodeWithText("Malayalam · മലയാളം").tap()
+        eventually {
+            assertEquals(com.aburv.kurippidu.SpeechLanguage.MALAYALAM, runBlocking { BackupPreferences.speechLanguage(context).first() })
+        }
+    }
+
+    @Test
     fun `backup opens the backup screen`() {
         compose.onNodeWithText("Backup & Restore").tap()
         assertEquals(1, backupOpened)

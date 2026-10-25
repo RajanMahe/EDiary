@@ -209,20 +209,23 @@ private fun DiaryContent(
             ?.firstOrNull()
             ?.let(viewModel::insertAtCursor)
     }
-    fun startVoice() {
-        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(
-                android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-            )
-            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Speak your entry")
+    val speechLanguage by BackupPreferences.speechLanguage(context).collectAsState(initial = null)
+    var showSpeechLanguages by remember { mutableStateOf(false) }
+
+    fun listen(language: SpeechLanguage) {
         try {
             onExportStarted()
-            voiceLauncher.launch(intent)
+            voiceLauncher.launch(language.intent())
         } catch (e: android.content.ActivityNotFoundException) {
             onExportFinished()
             photoError("Speech input isn't available on this phone")
         }
+    }
+
+    // The first time, ask which language; after that, speak straight away
+    fun startVoice() {
+        val language = speechLanguage
+        if (language == null) showSpeechLanguages = true else listen(language)
     }
 
     val reminderTime by BackupPreferences.reminderTime(context, diaryId).collectAsState(initial = null)
@@ -314,6 +317,8 @@ private fun DiaryContent(
                                         onManageRecurring = { showRecurringManager = true },
                                         onAddPhoto = { showPhotoSource = true },
                                         onVoice = ::startVoice,
+                                        onVoiceLanguage = { showSpeechLanguages = true },
+                                        voiceLanguage = speechLanguage?.tag?.substringBefore('-')?.uppercase(),
                                         onOpenPhoto = { viewingPhoto = it },
                                         onReviewWorkout = { showWorkoutReview = true }
                                     )
@@ -438,6 +443,18 @@ private fun DiaryContent(
                 viewingPhoto = null
             },
             onDismiss = { viewingPhoto = null }
+        )
+    }
+
+    if (showSpeechLanguages) {
+        SpeechLanguageSheet(
+            selected = speechLanguage,
+            onPick = { language ->
+                showSpeechLanguages = false
+                scope.launch { BackupPreferences.setSpeechLanguage(context, language) }
+                listen(language)
+            },
+            onDismiss = { showSpeechLanguages = false }
         )
     }
 
@@ -731,6 +748,8 @@ private fun EditorPage(
     onManageRecurring: () -> Unit,
     onAddPhoto: () -> Unit,
     onVoice: () -> Unit,
+    onVoiceLanguage: () -> Unit,
+    voiceLanguage: String?,
     onOpenPhoto: (com.aburv.kurippidu.data.AttachmentEntity) -> Unit,
     onReviewWorkout: () -> Unit
 ) {
@@ -747,7 +766,9 @@ private fun EditorPage(
             onManageRecurringClick = onManageRecurring,
             onChecklist = viewModel::toggleChecklistAtCursor,
             onAddPhoto = onAddPhoto,
-            onVoice = onVoice
+            onVoice = onVoice,
+            onVoiceLanguage = onVoiceLanguage,
+            voiceLanguage = voiceLanguage
         )
 
         // Everything below the toolbar scrolls as one page, so with the keyboard

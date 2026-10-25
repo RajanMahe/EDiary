@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
+import com.aburv.kurippidu.SpeechLanguage
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -71,6 +73,7 @@ class DiaryScreenTest {
                 // Open on today, where the editor is shown
                 BackupPreferences.setLastOpenedDate(context, it, today.toString())
                 BackupPreferences.setThemeMode(context, ThemeMode.LIGHT)
+                BackupPreferences.clearSpeechLanguage(context)
             }
         }
         compose.setContent {
@@ -361,18 +364,42 @@ class DiaryScreenTest {
 
     @Test
     fun `speaking adds the words`() {
+        // First time: pick a language, then it listens in that language
         compose.onNodeWithContentDescription("Speak to write").tap()
+        waitFor(hasText("Speak in"))
+        compose.onNodeWithText("Tamil · தமிழ்").tap()
         val request = org.robolectric.Shadows.shadowOf(compose.activity).nextStartedActivityForResult
         assertEquals(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH, request.intent.action)
+        assertEquals("ta-IN", request.intent.getStringExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE))
 
         val result = android.content.Intent().putStringArrayListExtra(
-            android.speech.RecognizerIntent.EXTRA_RESULTS, arrayListOf("hello from my voice")
+            android.speech.RecognizerIntent.EXTRA_RESULTS, arrayListOf("இன்று நல்ல நாள்")
         )
         compose.runOnUiThread {
             org.robolectric.Shadows.shadowOf(compose.activity)
                 .receiveResult(request.intent, android.app.Activity.RESULT_OK, result)
         }
-        waitFor(hasText("hello from my voice", substring = true))
+        waitFor(hasText("இன்று நல்ல நாள்", substring = true))
+        eventually {
+            assertEquals(SpeechLanguage.TAMIL, runBlocking { BackupPreferences.speechLanguage(context).first() })
+        }
+
+        // Next time it listens straight away, and the mic shows the language
+        waitFor(hasText("TA"))
+        compose.onNodeWithContentDescription("Speak to write").tap()
+        val again = org.robolectric.Shadows.shadowOf(compose.activity).nextStartedActivityForResult
+        assertEquals("ta-IN", again.intent.getStringExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE))
+    }
+
+    @Test
+    fun `long-press the mic to change the language`() {
+        runBlocking { BackupPreferences.setSpeechLanguage(context, SpeechLanguage.TAMIL) }
+        waitFor(hasText("TA"))
+        compose.onNodeWithContentDescription("Speak to write").performTouchInput { longClick() }
+        waitFor(hasText("Speak in"))
+        compose.onNodeWithText("Hindi · हिन्दी").tap()
+        val request = org.robolectric.Shadows.shadowOf(compose.activity).nextStartedActivityForResult
+        assertEquals("hi-IN", request.intent.getStringExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE))
     }
 
     @Test

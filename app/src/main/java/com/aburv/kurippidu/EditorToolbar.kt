@@ -1,6 +1,9 @@
 package com.aburv.kurippidu
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -14,6 +17,8 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -27,6 +32,7 @@ import androidx.compose.ui.unit.sp
  * Editor tools: formatting and checklist on the left, then things to add
  * (photo, voice, task, recurring task, template). Scrolls sideways on narrow phones.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun EditorToolbar(
     enabled: Boolean,
@@ -37,7 +43,10 @@ fun EditorToolbar(
     onManageRecurringClick: () -> Unit,
     onChecklist: () -> Unit = {},
     onAddPhoto: () -> Unit = {},
-    onVoice: () -> Unit = {}
+    onVoice: () -> Unit = {},
+    onVoiceLanguage: () -> Unit = {},
+    /** Short language code shown on the mic, e.g. "TA"; null for the phone's language. */
+    voiceLanguage: String? = null
 ) {
     val color = MaterialTheme.colorScheme.onBackground
     Row(
@@ -72,8 +81,31 @@ fun EditorToolbar(
         IconButton(onClick = onAddPhoto, enabled = enabled, modifier = ToolSize) {
             Icon(painterResource(R.drawable.ic_add_photo), contentDescription = "Add photo")
         }
-        IconButton(onClick = onVoice, enabled = enabled, modifier = ToolSize) {
-            Icon(painterResource(R.drawable.ic_mic), contentDescription = "Speak to write")
+        // Tap to speak, long-press to change the language
+        Box(
+            modifier = ToolSize
+                .clip(CircleShape)
+                .combinedClickable(
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClickLabel = "Speak to write",
+                    onLongClickLabel = "Change speech language",
+                    onLongClick = onVoiceLanguage,
+                    onClick = onVoice
+                )
+                .semantics { contentDescription = "Speak to write" },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(painterResource(R.drawable.ic_mic), contentDescription = null, tint = color)
+            if (voiceLanguage != null) {
+                Text(
+                    voiceLanguage,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.align(Alignment.BottomEnd)
+                )
+            }
         }
         IconButton(onClick = onAddType, enabled = enabled, modifier = ToolSize) {
             Icon(Icons.Default.Add, contentDescription = "Add")
