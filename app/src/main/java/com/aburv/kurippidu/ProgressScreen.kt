@@ -24,6 +24,8 @@ import com.aburv.kurippidu.data.coach.CoachTip
 import com.aburv.kurippidu.data.coach.TipKind
 import com.aburv.kurippidu.data.diaryType
 import com.aburv.kurippidu.data.progress.BalanceRow
+import com.aburv.kurippidu.data.progress.ExerciseSession
+import com.aburv.kurippidu.data.progress.PersonalBest
 import com.aburv.kurippidu.data.progress.FoodDay
 import com.aburv.kurippidu.data.progress.FoodSummary
 import com.aburv.kurippidu.data.progress.ProgressStats
@@ -32,9 +34,57 @@ import com.aburv.kurippidu.data.progress.WorkoutDay
 import com.aburv.kurippidu.ui.charts.BarChart
 import com.aburv.kurippidu.ui.charts.ChartPoint
 import com.aburv.kurippidu.ui.charts.LineChart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+
+/** Everything the Workout tab shows, worked out once in the background. */
+data class WorkoutView(
+    val days: List<WorkoutDay>,
+    val exercises: List<String>,
+    val sessions: Map<String, List<ExerciseSession>>,
+    val balance: List<BalanceRow>,
+    val bests: List<PersonalBest>,
+    val weekly: List<Pair<LocalDate, Double>>,
+    val daysThisWeek: Int,
+    val daysIn4Weeks: Int,
+    val daysSinceLast: Long?,
+    val unreviewed: Int
+) {
+    companion object {
+        fun of(days: List<WorkoutDay>, today: LocalDate): WorkoutView {
+            val exercises = ProgressStats.exercises(days)
+            return WorkoutView(
+                days, exercises,
+                ProgressStats.sessionsByExercise(days),
+                ProgressStats.balance(days),
+                ProgressStats.personalBests(days).take(6),
+                ProgressStats.weeklyVolume(days).takeLast(8),
+                ProgressStats.workoutDaysInLast(days, today, 7),
+                ProgressStats.workoutDaysInLast(days, today, 28),
+                ProgressStats.daysSinceLast(days, today),
+                days.count { !it.confirmed }
+            )
+        }
+    }
+}
+
+/** Everything the Food tab shows. */
+data class FoodView(val recent: List<Pair<LocalDate, FoodDay>>, val summary: FoodSummary, val isEmpty: Boolean)
+
+/** What Progress showed last, per diary, kept while the app is open. */
+private data class ProgressResult(
+    val fingerprint: String,
+    val title: String,
+    val type: DiaryType,
+    val workouts: WorkoutView,
+    val food: FoodView,
+    val tips: List<CoachTip>
+)
+
+private val lastResults = java.util.concurrent.ConcurrentHashMap<Int, ProgressResult>()
 
 class ProgressViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = DiaryRepository.get(application)
@@ -43,9 +93,9 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         private set
     var type by mutableStateOf(DiaryType.PLAIN)
         private set
-    var workouts by mutableStateOf<List<WorkoutDay>>(emptyList())
+    var workouts by mutableStateOf<WorkoutView?>(null)
         private set
-    var food by mutableStateOf<List<Pair<LocalDate, FoodDay>>>(emptyList())
+    var food by mutableStateOf<FoodView?>(null)
         private set
     var isLoading by mutableStateOf(true)
         private set
@@ -54,18 +104,41 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
 
     fun load(diaryId: Int, today: LocalDate = LocalDate.now()) {
         viewModelScope.launch {
-            repository.getDiary(diaryId)?.let {
-                title = it.title
-                type = it.diaryType
+            // Coming back: show what was there straight away
+            lastResults[diaryId]?.let(::show)
+            val fingerprint = repository.progressFingerprint(diaryId) + "|" + today
+            if (lastResults[diaryId]?.fingerprint == fingerprint) return@launch // nothing changed
+
+            val diary = repository.getDiary(diaryId) ?: return@launch
+            val type = diary.diaryType
+            // Only read what this kind of diary shows; unchanged entries come from the stored readings
+            val workoutDays = if (type != DiaryType.FOOD) repository.workoutHistory(diaryId) else emptyList()
+            val foodDays = if (type == DiaryType.FOOD || type == DiaryType.PLAIN) repository.foodHistory(diaryId) else emptyList()
+            val entries = repository.getAllEntries(diaryId)
+            // Charts, balance and tips are worked out once, in the background
+            val result = withContext(Dispatchers.Default) {
+                val dated = entries.mapNotNull { entry ->
+                    runCatching { LocalDate.parse(entry.date) }.getOrNull()?.let { it to entry.content }
+                }
+                ProgressResult(
+                    fingerprint, diary.title, type,
+                    WorkoutView.of(workoutDays, today),
+                    FoodView(foodDays.takeLast(14), FoodSummary.of(foodDays, today), foodDays.isEmpty()),
+                    CoachRules.tips(CoachInput(type, today, workoutDays, foodDays, dated))
+                )
             }
-            workouts = repository.workoutHistory(diaryId)
-            food = repository.foodHistory(diaryId)
-            val entries = repository.getAllEntries(diaryId).mapNotNull { entry ->
-                runCatching { LocalDate.parse(entry.date) }.getOrNull()?.let { it to entry.content }
-            }
-            tips = CoachRules.tips(CoachInput(type, today, workouts, food, entries))
-            isLoading = false
+            lastResults[diaryId] = result
+            show(result)
         }
+    }
+
+    private fun show(result: ProgressResult) {
+        title = result.title
+        type = result.type
+        workouts = result.workouts
+        food = result.food
+        tips = result.tips
+        isLoading = false
     }
 }
 
@@ -109,8 +182,8 @@ fun ProgressScreen(
             }
             when {
                 viewModel.isLoading -> Box(Modifier.fillMaxSize()) { CircularProgressIndicator(Modifier.padding(32.dp)) }
-                tabs[tab.coerceAtMost(tabs.lastIndex)] == "Workout" -> WorkoutProgress(viewModel.workouts, today, viewModel.tips)
-                else -> FoodProgress(viewModel.food, today, viewModel.tips)
+                tabs[tab.coerceAtMost(tabs.lastIndex)] == "Workout" -> viewModel.workouts?.let { WorkoutProgress(it, viewModel.tips) }
+                else -> viewModel.food?.let { FoodProgress(it, viewModel.tips) }
             }
         }
     }
@@ -119,17 +192,17 @@ fun ProgressScreen(
 /* ---------------- WORKOUT ---------------- */
 
 @Composable
-private fun WorkoutProgress(days: List<WorkoutDay>, today: LocalDate, tips: List<CoachTip>) {
-    if (days.isEmpty()) {
+private fun WorkoutProgress(view: WorkoutView, tips: List<CoachTip>) {
+    if (view.days.isEmpty()) {
         EmptyState("No workouts yet", "Write your sets in the diary, like \"Squat 20 kg 10 rep 3 set\" or \"12.5 - 15\". They show up here.")
         return
     }
-    val exercises = remember(days) { ProgressStats.exercises(days) }
+    val exercises = view.exercises
     var selected by remember(exercises) { mutableStateOf(exercises.firstOrNull()) }
 
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         tipItems(tips)
-        item { WorkoutSummary(days, today) }
+        item { WorkoutSummary(view) }
 
         if (exercises.isNotEmpty()) {
             item {
@@ -139,16 +212,16 @@ private fun WorkoutProgress(days: List<WorkoutDay>, today: LocalDate, tips: List
                     }
                 }
             }
-            selected?.let { name -> item { ExerciseCard(days, name) } }
+            selected?.let { name -> item { ExerciseCard(view.sessions[name].orEmpty(), name) } }
         }
 
-        val balance = ProgressStats.balance(days)
+        val balance = view.balance
         if (balance.isNotEmpty()) {
             item { SectionTitle("Left / right balance") }
             balance.forEach { row -> item { BalanceCard(row) } }
         }
 
-        val bests = ProgressStats.personalBests(days).take(6)
+        val bests = view.bests
         if (bests.isNotEmpty()) {
             item { SectionTitle("Personal bests") }
             item {
@@ -165,7 +238,7 @@ private fun WorkoutProgress(days: List<WorkoutDay>, today: LocalDate, tips: List
             }
         }
 
-        val weekly = ProgressStats.weeklyVolume(days).takeLast(8)
+        val weekly = view.weekly
         if (weekly.any { it.second > 0 }) {
             item { SectionTitle("Weekly volume (kg × reps × sets)") }
             item {
@@ -182,11 +255,11 @@ private fun WorkoutProgress(days: List<WorkoutDay>, today: LocalDate, tips: List
 }
 
 @Composable
-private fun WorkoutSummary(days: List<WorkoutDay>, today: LocalDate) {
-    val week = ProgressStats.workoutDaysInLast(days, today, 7)
-    val month = ProgressStats.workoutDaysInLast(days, today, 28)
-    val since = ProgressStats.daysSinceLast(days, today)
-    val unreviewed = days.count { !it.confirmed }
+private fun WorkoutSummary(view: WorkoutView) {
+    val week = view.daysThisWeek
+    val month = view.daysIn4Weeks
+    val since = view.daysSinceLast
+    val unreviewed = view.unreviewed
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row {
@@ -209,8 +282,7 @@ private fun WorkoutSummary(days: List<WorkoutDay>, today: LocalDate) {
 }
 
 @Composable
-private fun ExerciseCard(days: List<WorkoutDay>, exercise: String) {
-    val sessions = ProgressStats.sessions(days, exercise)
+private fun ExerciseCard(sessions: List<ExerciseSession>, exercise: String) {
     val byWeight = sessions.any { it.bestWeightKg != null }
     val byMinutes = !byWeight && sessions.any { it.minutes != null }
     val points = sessions.mapNotNull { s ->
@@ -301,13 +373,13 @@ private fun BalanceCard(row: BalanceRow) {
 /* ---------------- FOOD ---------------- */
 
 @Composable
-private fun FoodProgress(days: List<Pair<LocalDate, FoodDay>>, today: LocalDate, tips: List<CoachTip>) {
-    if (days.isEmpty()) {
+private fun FoodProgress(view: FoodView, tips: List<CoachTip>) {
+    if (view.isEmpty) {
         EmptyState("No food logged yet", "Write what you ate, like \"2 idli, sambar\" or \"250 ml tender coconut\". It shows up here.")
         return
     }
-    val summary = remember(days, today) { FoodSummary.of(days, today) }
-    val recent = days.takeLast(14)
+    val summary = view.summary
+    val recent = view.recent
 
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         tipItems(tips)

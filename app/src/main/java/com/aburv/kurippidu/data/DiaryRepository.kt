@@ -12,14 +12,15 @@ import com.aburv.kurippidu.data.backup.FullBackup
 import com.aburv.kurippidu.data.backup.RestoreSummary
 import com.aburv.kurippidu.data.progress.EntryWorkout
 import com.aburv.kurippidu.data.progress.FoodDay
-import com.aburv.kurippidu.data.progress.FoodParser
 import com.aburv.kurippidu.data.progress.ParsedSet
 import com.aburv.kurippidu.data.progress.Side
 import com.aburv.kurippidu.data.progress.WorkoutDay
 import com.aburv.kurippidu.data.progress.WorkoutParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 
@@ -321,7 +322,7 @@ class DiaryRepository internal constructor(
     /** One day's workout: the confirmed sets if reviewed, else what the parser read. */
     suspend fun workoutFor(diaryId: Int, date: LocalDate): EntryWorkout {
         val entry = dao.getEntryByDate(diaryId, date.toString()) ?: return EntryWorkout()
-        val parsed = WorkoutParser.parse(entry.content)
+        val parsed = withContext(Dispatchers.Default) { WorkoutParser.parse(entry.content) }
         val review = dao.getWorkoutReview(entry.id)
             ?: return EntryWorkout(parsed.sets, parsed.notes, confirmed = false, changedSinceReview = false)
         return EntryWorkout(
@@ -340,26 +341,53 @@ class DiaryRepository internal constructor(
         }
     }
 
+    /**
+     * Every entry with what was read from it. Stored readings are reused; only
+     * new or edited entries are read again, so this stays quick on a long diary.
+     */
+    private suspend fun analysedEntries(diaryId: Int): List<Pair<DiaryEntity, EntryAnalysis>> {
+        val entries = dao.getAllEntries(diaryId)
+        val stored = dao.getAnalysesForDiary(diaryId).associateBy { it.entryId }
+        val fresh = mutableListOf<EntryAnalysisEntity>()
+        val result = withContext(Dispatchers.Default) {
+            entries.map { entry ->
+                val known = stored[entry.id]?.let { EntryAnalysis.from(it, entry.content) }
+                entry to (known ?: EntryAnalysis.of(entry.content).also { fresh += it.toEntity(entry.id, entry.content) })
+            }
+        }
+        if (fresh.isNotEmpty()) dao.upsertAnalyses(fresh)
+        return result
+    }
+
+    /** Same value until something in the diary that Progress shows changes. */
+    suspend fun progressFingerprint(diaryId: Int): String =
+        dao.entriesFingerprint(diaryId) + "|" + dao.reviewsFingerprint(diaryId) + "|" + dao.getDiaryById(diaryId)?.type
+
     /** Every day with a workout, oldest first: confirmed sets where reviewed, parsed ones elsewhere. */
     suspend fun workoutHistory(diaryId: Int): List<WorkoutDay> {
         val confirmed = dao.getWorkoutSetsForDiary(diaryId).groupBy { it.entryId }
         val reviewed = dao.getWorkoutReviewsForDiary(diaryId).map { it.entryId }.toSet()
-        return dao.getAllEntries(diaryId).mapNotNull { entry ->
+        val entries = analysedEntries(diaryId)
+        return withContext(Dispatchers.Default) { entries.mapNotNull { (entry, analysis) ->
             val date = runCatching { LocalDate.parse(entry.date) }.getOrNull() ?: return@mapNotNull null
             if (entry.id in reviewed) {
                 WorkoutDay(date, confirmed[entry.id].orEmpty().map { it.toParsed() }, confirmed = true)
             } else {
-                WorkoutParser.parse(entry.content).sets.takeIf { it.isNotEmpty() }?.let { WorkoutDay(date, it, confirmed = false) }
+                analysis.sets.takeIf { it.isNotEmpty() }?.let { WorkoutDay(date, it, confirmed = false) }
             }
-        }.filter { it.sets.isNotEmpty() }.sortedBy { it.date }
+        }.filter { it.sets.isNotEmpty() }.sortedBy { it.date } }
     }
 
     /** Every day's food, oldest first. Estimates only. */
-    suspend fun foodHistory(diaryId: Int): List<Pair<LocalDate, FoodDay>> =
-        dao.getAllEntries(diaryId).mapNotNull { entry ->
-            val date = runCatching { LocalDate.parse(entry.date) }.getOrNull() ?: return@mapNotNull null
-            FoodParser.parseDay(entry.content).takeIf { it.items.isNotEmpty() }?.let { date to it }
-        }.sortedBy { it.first }
+    suspend fun foodHistory(diaryId: Int): List<Pair<LocalDate, FoodDay>> {
+        val entries = analysedEntries(diaryId)
+        return withContext(Dispatchers.Default) {
+            entries.mapNotNull { (entry, analysis) ->
+                val date = runCatching { LocalDate.parse(entry.date) }.getOrNull() ?: return@mapNotNull null
+                analysis.food.takeIf { it.items.isNotEmpty() }?.let { date to it }
+            }.sortedBy { it.first }
+        }
+    }
 
     /* ---------------- FULL BACKUP ---------------- */
 

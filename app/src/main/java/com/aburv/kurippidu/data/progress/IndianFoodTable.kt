@@ -162,13 +162,35 @@ object IndianFoodTable {
         food("Water", "drinking water|thanni|tanni|mineral water", 0, 0, 250, null, D, FoodTag.WATER),
     )
 
-    /** Every alias with its food, longest first, so "lemon rice" wins over "rice". */
-    private val byAlias: List<Pair<String, Food>> =
-        foods.flatMap { f -> f.aliases.map { it to f } }.sortedByDescending { it.first.length }
+    private val byFoodName: Map<String, Food> = foods.associateBy { it.name }
 
-    private val aliasRegexes = byAlias.map { (alias, f) ->
-        Regex("""(?<![\p{L}])${Regex.escape(alias)}(?![\p{L}])""", RegexOption.IGNORE_CASE) to f
+    /** A food by its table name, as stored in the entry cache. */
+    fun byName(name: String): Food? = byFoodName[name]
+
+    private val words = Regex("""[^\p{L}\p{N}]+""")
+
+    /** Alias words joined by single spaces → its food. */
+    private val byAlias: Map<String, Food> = buildMap {
+        foods.forEach { food ->
+            food.aliases.forEach { alias -> putIfAbsent(words.split(alias).filter { it.isNotEmpty() }.joinToString(" "), food) }
+        }
     }
+    private val longestAlias = byAlias.keys.maxOf { it.split(" ").size }
 
-    fun find(text: String): Food? = aliasRegexes.firstOrNull { (re, _) -> re.containsMatchIn(text) }?.second
+    /**
+     * The food named in [text], matching whole words; the longest name wins,
+     * so "lemon rice" beats "rice". One map lookup per word group, so it's fast
+     * enough to run over every line of a long diary.
+     */
+    fun find(text: String): Food? {
+        val tokens = words.split(text.lowercase()).filter { it.isNotEmpty() }
+        var best: String? = null
+        for (start in tokens.indices) {
+            for (size in minOf(longestAlias, tokens.size - start) downTo 1) {
+                val key = tokens.subList(start, start + size).joinToString(" ")
+                if (key in byAlias && (best == null || key.length > best.length)) best = key
+            }
+        }
+        return best?.let(byAlias::get)
+    }
 }

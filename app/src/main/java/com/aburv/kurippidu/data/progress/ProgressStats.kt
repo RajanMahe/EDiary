@@ -58,17 +58,28 @@ data class BalanceRow(
 
 object ProgressStats {
 
-    /** "Lunges", "lunge" and "LUNGES " are the same exercise. */
-    fun key(name: String): String =
-        name.lowercase().replace(Regex("""[^\p{L}\d ]"""), " ").trim().replace(Regex("""\s+"""), " ")
+    private val notWord = Regex("""[^\p{L}\d ]""")
+    private val spaces = Regex("""\s+""")
+    private val keys = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * "Lunges", "lunge" and "LUNGES " are the same exercise. Remembered per
+     * name: a long diary has hundreds of sets but only a few hundred names.
+     */
+    fun key(name: String): String = keys.getOrPut(name) {
+        name.lowercase().replace(notWord, " ").trim().replace(spaces, " ")
             .split(" ").joinToString(" ") { if (it.length > 3 && it.endsWith("s")) it.dropLast(1) else it }
+    }
 
     private fun working(days: List<WorkoutDay>) =
         days.flatMap { day -> day.sets.filter { !it.warmUp }.map { day.date to it } }
 
+    /** Working sets grouped by exercise, in one pass. */
+    private fun byExercise(days: List<WorkoutDay>) = working(days).groupBy { key(it.second.exercise) }
+
     /** Exercise names: weighted ones first, then most often done; the latest spelling is shown. */
     fun exercises(days: List<WorkoutDay>): List<String> =
-        working(days).groupBy { key(it.second.exercise) }
+        byExercise(days)
             .entries.sortedWith(
                 compareByDescending<Map.Entry<String, List<Pair<LocalDate, ParsedSet>>>> { e -> e.value.any { it.second.weightKg != null } }
                     .thenByDescending { e -> e.value.map { it.first }.distinct().size }
@@ -76,11 +87,21 @@ object ProgressStats {
             )
             .map { e -> e.value.maxBy { it.first }.second.exercise }
 
+    /** Every exercise's sessions at once, keyed by the name [exercises] shows. */
+    fun sessionsByExercise(days: List<WorkoutDay>): Map<String, List<ExerciseSession>> {
+        val groups = byExercise(days)
+        return exercises(days).associateWith { name -> toSessions(groups[key(name)].orEmpty()) }
+    }
+
     fun sessions(days: List<WorkoutDay>, exercise: String): List<ExerciseSession> {
         val k = key(exercise)
-        return working(days).filter { key(it.second.exercise) == k }.groupBy { it.first }
-            .map { (date, rows) ->
-                val sets = rows.map { it.second }
+        return toSessions(working(days).filter { key(it.second.exercise) == k })
+    }
+
+    private fun toSessions(rows: List<Pair<LocalDate, ParsedSet>>): List<ExerciseSession> =
+        rows.groupBy { it.first }
+            .map { (date, dayRows) ->
+                val sets = dayRows.map { it.second }
                 ExerciseSession(
                     date,
                     sets.mapNotNull { it.weightKg }.maxOrNull(),
@@ -89,7 +110,6 @@ object ProgressStats {
                     sets.mapNotNull { it.minutes }.takeIf { it.isNotEmpty() }?.sum()
                 )
             }.sortedBy { it.date }
-    }
 
     /** Heaviest weight per exercise, heaviest first. */
     fun personalBests(days: List<WorkoutDay>): List<PersonalBest> =
