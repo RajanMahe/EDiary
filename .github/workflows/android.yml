@@ -44,6 +44,11 @@ jobs:
                       continue
                   name = f"{case.get('classname', '').split('.')[-1]} > {case.get('name')}"
                   message = (problem.get("message") or problem.text or "").strip()[:400]
+                  # The first frames from our code (and any "Caused by") say where it broke
+                  stack = [l.strip() for l in (problem.text or "").splitlines()
+                           if "com.aburv" in l or l.strip().startswith("Caused by")][:12]
+                  if stack:
+                      message += "\n" + "\n".join(stack)
                   lines.append(f"- **{name}**: {message}")
                   print(f"::error title={name}::{message.replace(chr(10), '%0A')}")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
