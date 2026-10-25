@@ -60,6 +60,7 @@ class DiaryScreenTest {
     private var diaryId = 0
     private var backPresses = 0
     private var settingsOpened = 0
+    private var progressOpened = 0
     private val today = LocalDate.now()
 
     @Before
@@ -79,7 +80,8 @@ class DiaryScreenTest {
                     onExportStarted = {},
                     onExportFinished = {},
                     onBack = { backPresses++ },
-                    onOpenSettings = { settingsOpened++ }
+                    onOpenSettings = { settingsOpened++ },
+                    onOpenProgress = { progressOpened++ }
                 )
             }
         }
@@ -157,6 +159,37 @@ class DiaryScreenTest {
         compose.onNodeWithText("Workout").assertDoesNotExist()
         compose.onNodeWithText("Single leg / arm").tap()
         waitFor(hasText("Left … kg … rep … set", substring = true))
+    }
+
+    @Test
+    fun `gym diary - review the workout read from the entry and confirm it`() {
+        runBlocking { data.repository.setDiaryType(data.dao.getDiaryById(diaryId)!!, com.aburv.kurippidu.data.DiaryType.GYM) }
+        compose.onNode(hasSetTextAction()).performTextInput("Squat 20 kg 10 rep 3 set")
+        mainDispatcher.dispatcher.scheduler.advanceTimeBy(900) // autosave delay
+        waitFor(hasText("Review workout (1)"))
+        compose.onNodeWithText("Review workout (1)").tap()
+        waitFor(hasText("Confirm"))
+        compose.onNodeWithText("Squat").assertExists()
+        compose.onNodeWithText("Confirm").tap()
+        waitFor(hasText("✓ Workout saved (1)"))
+        val saved = runBlocking { data.repository.workoutFor(diaryId, today) }
+        assertEquals(20.0, saved.sets.single().weightKg)
+    }
+
+    @Test
+    fun `plain diary has no workout review`() {
+        compose.onNode(hasSetTextAction()).performTextInput("Squat 20 kg 10 rep 3 set")
+        mainDispatcher.dispatcher.scheduler.advanceTimeBy(900) // autosave delay
+        waitFor(hasText("7 words · Last edited", substring = true)) // saved
+        compose.waitForIdle()
+        compose.onNodeWithText("Review workout (1)").assertDoesNotExist()
+    }
+
+    @Test
+    fun `menu opens progress`() {
+        compose.onNodeWithContentDescription("More").tap()
+        compose.onNodeWithText("Progress").tap()
+        assertEquals(1, progressOpened)
     }
 
     @Test

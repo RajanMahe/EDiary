@@ -10,6 +10,7 @@ import kotlinx.serialization.Serializable
  * - 2: this object, as a .json file
  * - 3: same object inside a .zip together with the photos (attachments/…)
  * - 4: each diary also has its type (Plain / Gym / Rehab / Food)
+ * - 5: entries carry their confirmed workout sets
  *
  * New fields must have defaults so older files keep decoding.
  */
@@ -23,7 +24,7 @@ data class FullBackup(
 ) {
     companion object {
         const val APP_ID = "kurippidu"
-        const val CURRENT_VERSION = 4
+        const val CURRENT_VERSION = 5
     }
 }
 
@@ -50,7 +51,20 @@ data class BackupEntry(
     val content: String,
     val mood: String? = null,
     val updatedAt: Long? = null,
-    val attachments: List<String> = emptyList()
+    val attachments: List<String> = emptyList(),
+    /** Confirmed workout (version 5); null when it was never reviewed. */
+    val workout: List<BackupSet>? = null
+)
+
+@Serializable
+data class BackupSet(
+    val exercise: String,
+    val side: String = "BOTH",
+    val weightKg: Double? = null,
+    val reps: Int? = null,
+    val sets: Int = 1,
+    val minutes: Double? = null,
+    val warmUp: Boolean = false
 )
 
 /**
