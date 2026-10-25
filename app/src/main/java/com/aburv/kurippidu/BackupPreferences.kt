@@ -20,6 +20,8 @@ private fun lastSearchKey(diaryId: Int) = stringPreferencesKey("last_search_$dia
     private val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
 
     private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+    private val COACH_TIPS = booleanPreferencesKey("coach_tips_weekly")
+    private val SENT_TIP_IDS = stringSetPreferencesKey("coach_tips_sent")
     private val FONT_SIZE = stringPreferencesKey("font_size")
 
     private val AUTO_BACKUP_FREQUENCY = stringPreferencesKey("auto_backup_frequency")
@@ -137,6 +139,29 @@ private fun lastSearchKey(diaryId: Int) = stringPreferencesKey("last_search_$dia
 
     suspend fun setFontSize(context: Context, size: DiaryFontSize) {
         context.dataStore.edit { it[FONT_SIZE] = size.name }
+    }
+
+    /* ---------------- COACH TIPS ---------------- */
+
+    fun coachTips(context: Context): Flow<Boolean> =
+        context.dataStore.data.map { it[COACH_TIPS] ?: false }
+
+    suspend fun setCoachTips(context: Context, enabled: Boolean) {
+        context.dataStore.edit { it[COACH_TIPS] = enabled }
+    }
+
+    /** Tips already sent as notifications, as "diaryId:tipId". */
+    fun sentTipIds(context: Context): Flow<Set<String>> =
+        context.dataStore.data.map { it[SENT_TIP_IDS].orEmpty() }
+
+    @androidx.annotation.VisibleForTesting
+    suspend fun clearSentTipIds(context: Context) {
+        context.dataStore.edit { it.remove(SENT_TIP_IDS) }
+    }
+
+    /** A few ids a week per diary, so the set stays small. */
+    suspend fun addSentTipIds(context: Context, ids: Set<String>) {
+        context.dataStore.edit { prefs -> prefs[SENT_TIP_IDS] = prefs[SENT_TIP_IDS].orEmpty() + ids }
     }
 
     /* ---------------- WELCOME ---------------- */

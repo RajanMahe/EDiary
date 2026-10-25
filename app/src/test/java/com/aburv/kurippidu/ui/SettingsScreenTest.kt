@@ -45,6 +45,7 @@ class SettingsScreenTest {
             BackupPreferences.setThemeMode(context, ThemeMode.LIGHT)
             BackupPreferences.setFontSize(context, DiaryFontSize.MEDIUM)
             BackupPreferences.setLockMode(context, LockMode.OFF)
+            BackupPreferences.setCoachTips(context, false)
         }
         compose.setContent {
             DiaryTheme(darkTheme = false) {
@@ -91,7 +92,7 @@ class SettingsScreenTest {
 
     @Test
     fun `turning the lock on asks for the fingerprint first`() {
-        compose.onNode(isToggleable()).tap()
+        compose.onAllNodes(isToggleable())[0].tap() // app lock
         assertEquals(1, lockAsked)
         eventually { assertEquals(LockMode.BIOMETRIC, runBlocking { BackupPreferences.lockMode(context).first() }) }
         waitForText("App lock enabled")
@@ -100,7 +101,7 @@ class SettingsScreenTest {
     @Test
     fun `a failed fingerprint leaves the lock off`() {
         lockAnswer = false
-        compose.onNode(isToggleable()).tap()
+        compose.onAllNodes(isToggleable())[0].tap() // app lock
         waitForText("Authentication failed")
         assertEquals(LockMode.OFF, runBlocking { BackupPreferences.lockMode(context).first() })
     }
@@ -109,8 +110,23 @@ class SettingsScreenTest {
     fun `turning the lock off`() {
         runBlocking { BackupPreferences.setLockMode(context, LockMode.BIOMETRIC) }
         waitForText("Biometric / Face enabled")
-        compose.onNode(isToggleable()).tap()
+        compose.onAllNodes(isToggleable())[0].tap() // app lock
         eventually { assertEquals(LockMode.OFF, runBlocking { BackupPreferences.lockMode(context).first() }) }
+    }
+
+    @Test
+    fun `weekly coach tips can be turned on and off`() {
+        org.robolectric.Shadows.shadowOf(context as android.app.Application)
+            .grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        // Tips are scheduled with WorkManager
+        androidx.work.testing.WorkManagerTestInitHelper.initializeTestWorkManager(
+            context, androidx.work.Configuration.Builder().setExecutor(androidx.work.testing.SynchronousExecutor()).build()
+        )
+        compose.onNodeWithText("Weekly coach tips").assertExists()
+        compose.onAllNodes(isToggleable())[1].tap()
+        eventually { assertEquals(true, runBlocking { BackupPreferences.coachTips(context).first() }) }
+        compose.onAllNodes(isToggleable())[1].tap()
+        eventually { assertEquals(false, runBlocking { BackupPreferences.coachTips(context).first() }) }
     }
 
     @Test

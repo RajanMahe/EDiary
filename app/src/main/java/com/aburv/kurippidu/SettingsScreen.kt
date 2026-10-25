@@ -2,7 +2,11 @@
 
 package com.aburv.kurippidu
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.aburv.kurippidu.reminders.CoachTips
+import com.aburv.kurippidu.reminders.Reminders
 import kotlinx.coroutines.launch
 
 /**
@@ -38,6 +44,15 @@ fun SettingsScreen(
     val fontSize by BackupPreferences.fontSize(context).collectAsState(initial = DiaryFontSize.MEDIUM)
     val lockMode by BackupPreferences.lockMode(context).collectAsState(initial = LockMode.OFF)
     val autoFrequency by BackupPreferences.autoBackupFrequency(context).collectAsState(initial = AutoBackupFrequency.OFF)
+    val coachTips by BackupPreferences.coachTips(context).collectAsState(initial = false)
+
+    // Weekly tips need notifications; turned on only once that's allowed
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        scope.launch {
+            if (granted) CoachTips.setEnabled(context, true)
+            else snackbarHostState.showSnackbar("Allow notifications to get weekly tips")
+        }
+    }
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showFontDialog by remember { mutableStateOf(false) }
@@ -89,6 +104,28 @@ fun SettingsScreen(
                             BackupPreferences.setLockMode(context, LockMode.OFF)
                             snackbarHostState.showSnackbar("App lock disabled")
                         }
+                    }
+                )
+            }
+
+            item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
+            item { Header("Coach") }
+            item {
+                ListItem(
+                    headlineContent = { Text("Weekly coach tips") },
+                    supportingContent = { Text("Sunday evening: one tip from each gym, rehab or food diary") },
+                    trailingContent = {
+                        Switch(
+                            checked = coachTips,
+                            onCheckedChange = { on ->
+                                when {
+                                    !on -> scope.launch { CoachTips.setEnabled(context, false) }
+                                    Build.VERSION.SDK_INT >= 33 && !Reminders.canNotify(context) ->
+                                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    else -> scope.launch { CoachTips.setEnabled(context, true) }
+                                }
+                            }
+                        )
                     }
                 )
             }

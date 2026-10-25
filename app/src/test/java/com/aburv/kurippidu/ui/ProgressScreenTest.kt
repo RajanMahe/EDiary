@@ -68,9 +68,9 @@ class ProgressScreenTest {
             )
         )
         waitFor("Progress · Log")
-        waitFor("2 days are not reviewed yet", substring = true)
-        compose.onNodeWithText("Heaviest weight · Quad using machine").assertExists()
-        compose.onNodeWithText("Up 25% since 1 Feb").assertExists()
+        scrollTo("2 days are not reviewed yet")
+        scrollTo("Heaviest weight · Quad using machine")
+        scrollTo("Up 25% since 1 Feb")
 
         scrollTo("Left is 8% behind")
         compose.onNodeWithText("Gap was 23% at the start: closing ✓").assertExists()
@@ -97,5 +97,21 @@ class ProgressScreenTest {
         waitFor("No workouts yet")
         compose.onNodeWithText("Food").tap()
         waitFor("No food logged yet")
+    }
+
+    @Test
+    fun `coach tips come first, most important on top`() {
+        show(
+            DiaryType.REHAB,
+            mapOf(
+                9L to "Left ,right leg calf rise - 20,26",
+                5L to "Left ,right leg calf rise - 21,26\nKnee pain after lunges"
+            )
+        )
+        waitFor("Coach tips")
+        compose.onNodeWithText("You mentioned pain or soreness").assertExists()
+        compose.onNodeWithText("Calf rise: Left 19% behind").assertExists()
+        compose.onNodeWithText("No workout for 5 days").assertExists()
+        compose.onNodeWithText("They're general guidance, not medical advice", substring = true).assertExists()
     }
 }

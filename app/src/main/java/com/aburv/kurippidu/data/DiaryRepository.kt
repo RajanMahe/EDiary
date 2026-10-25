@@ -44,6 +44,8 @@ class DiaryRepository internal constructor(
 
     suspend fun firstDiary(): DiaryOwnerEntity? = dao.getAllDiaries().firstOrNull()
 
+    suspend fun getAllDiaries(): List<DiaryOwnerEntity> = dao.getAllDiaries()
+
     suspend fun ensureDefaultDiary() {
         if (dao.getDiaryCount() == 0) {
             dao.insertDiary(DiaryOwnerEntity(title = "My Diary"))
