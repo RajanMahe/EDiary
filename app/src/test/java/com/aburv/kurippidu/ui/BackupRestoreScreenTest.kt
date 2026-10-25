@@ -141,7 +141,7 @@ class BackupRestoreScreenTest {
         waitFor(hasText("Backup saved"))
         val json = com.aburv.kurippidu.backup.BackupArchive.read(file.readBytes(), File(file.parentFile, "unpacked"))
         val saved = (BackupCodec.decode(json) as ParsedBackup.Full).backup
-        assertEquals(3, saved.version)
+        assertEquals(FullBackup.CURRENT_VERSION, saved.version)
         assertEquals(listOf("First", "Second"), saved.diaries.single().entries.map { it.content })
         assertEquals(1, exportFinished)
         assertNotNull(runBlocking { BackupPreferences.lastBackupTime(context).first() })

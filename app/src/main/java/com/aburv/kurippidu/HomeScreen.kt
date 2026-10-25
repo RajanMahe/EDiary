@@ -18,6 +18,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aburv.kurippidu.data.DiaryOwnerEntity
+import com.aburv.kurippidu.data.DiaryType
+import com.aburv.kurippidu.data.diaryType
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -30,6 +32,10 @@ fun HomeScreen(
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var newDiaryTitle by remember { mutableStateOf("") }
+    var newDiaryType by remember { mutableStateOf(DiaryType.PLAIN) }
+
+    // For change type
+    var diaryToRetype by remember { mutableStateOf<DiaryOwnerEntity?>(null) }
 
     // For rename
     var diaryToRename by remember { mutableStateOf<DiaryOwnerEntity?>(null) }
@@ -130,7 +136,8 @@ fun HomeScreen(
                             diaryToRename = diary
                             renameText = diary.title
                         },
-                        onDelete = { diaryToDelete = diary }
+                        onDelete = { diaryToDelete = diary },
+                        onChangeType = { diaryToRetype = diary }
                     )
                 }
                 item { Spacer(Modifier.height(72.dp)) } // FAB clearance
@@ -140,36 +147,64 @@ fun HomeScreen(
 
     // ── Create diary dialog ──
     if (showCreateDialog) {
+        fun close() {
+            showCreateDialog = false
+            newDiaryTitle = ""
+            newDiaryType = DiaryType.PLAIN
+        }
         AlertDialog(
-            onDismissRequest = {
-                showCreateDialog = false
-                newDiaryTitle = ""
-            },
+            onDismissRequest = ::close,
             title = { Text("New diary") },
             text = {
-                OutlinedTextField(
-                    value = newDiaryTitle,
-                    onValueChange = { newDiaryTitle = it },
-                    label = { Text("Diary name") },
-                    placeholder = { Text("e.g. Workout, Food, Daily") },
-                    singleLine = true
-                )
+                Column {
+                    Text("What is it for?", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                    DiaryTypeChips(selected = newDiaryType, onSelect = { newDiaryType = it })
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = newDiaryTitle,
+                        onValueChange = { newDiaryTitle = it },
+                        label = { Text("Diary name") },
+                        placeholder = { Text(newDiaryType.suggestedTitle) },
+                        singleLine = true
+                    )
+                }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.createDiary(newDiaryTitle)
-                        showCreateDialog = false
-                        newDiaryTitle = ""
-                    },
-                    enabled = newDiaryTitle.isNotBlank()
-                ) { Text("Create") }
+                TextButton(onClick = {
+                    viewModel.createDiary(newDiaryTitle, newDiaryType)
+                    close()
+                }) { Text("Create") }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    showCreateDialog = false
-                    newDiaryTitle = ""
-                }) { Text("Cancel") }
+                TextButton(onClick = ::close) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Change type dialog ──
+    diaryToRetype?.let { diary ->
+        AlertDialog(
+            onDismissRequest = { diaryToRetype = null },
+            title = { Text("Diary type") },
+            text = {
+                Column {
+                    Text(
+                        "Changes the templates and progress for \"${diary.title}\". Your entries stay as they are.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    DiaryTypeChips(
+                        selected = diary.diaryType,
+                        onSelect = {
+                            viewModel.setDiaryType(diary, it)
+                            diaryToRetype = null
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { diaryToRetype = null }) { Text("Close") }
             }
         )
     }
@@ -232,7 +267,8 @@ private fun DiaryCard(
     streak: Int,
     onClick: () -> Unit,
     onRename: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onChangeType: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -258,7 +294,7 @@ private fun DiaryCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = diaryEmoji(diary.title),
+                text = diary.diaryType.takeIf { it != DiaryType.PLAIN }?.emoji ?: diaryEmoji(diary.title),
                 fontSize = 32.sp
             )
             Spacer(Modifier.width(16.dp))
@@ -305,6 +341,13 @@ private fun DiaryCard(
                         }
                     )
                     DropdownMenuItem(
+                        text = { Text("Change type") },
+                        onClick = {
+                            showMenu = false
+                            onChangeType()
+                        }
+                    )
+                    DropdownMenuItem(
                         text = {
                             Text("Delete", color = MaterialTheme.colorScheme.error)
                         },
@@ -315,6 +358,21 @@ private fun DiaryCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/** Plain / Gym / Rehab / Food as chips; wraps onto two lines on narrow screens. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DiaryTypeChips(selected: DiaryType, onSelect: (DiaryType) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DiaryType.entries.forEach { type ->
+            FilterChip(
+                selected = type == selected,
+                onClick = { onSelect(type) },
+                label = { Text("${type.emoji} ${type.label}") }
+            )
         }
     }
 }

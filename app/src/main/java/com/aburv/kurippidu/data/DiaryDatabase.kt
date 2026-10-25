@@ -18,7 +18,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         AttachmentEntity::class,
         EntryTagEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
@@ -215,9 +215,29 @@ abstract class DiaryDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 🔹 Migration 11 → 12
+         * Diary types (Plain / Gym / Rehab / Food). Existing diaries get a type
+         * guessed from their name, so "Gym log" opens with gym templates.
+         */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE diaries ADD COLUMN type TEXT NOT NULL DEFAULT 'PLAIN'")
+                val guesses = mutableListOf<Pair<Int, DiaryType>>()
+                database.query("SELECT diaryId, title FROM diaries").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        guesses += cursor.getInt(0) to DiaryType.guessFromTitle(cursor.getString(1))
+                    }
+                }
+                guesses.filter { it.second != DiaryType.PLAIN }.forEach { (id, type) ->
+                    database.execSQL("UPDATE diaries SET type = ? WHERE diaryId = ?", arrayOf<Any>(type.name, id))
+                }
+            }
+        }
+
         val ALL_MIGRATIONS = arrayOf(
             MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
+            MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12
         )
 
         const val NAME = "diary_db"

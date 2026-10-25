@@ -9,6 +9,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.aburv.kurippidu.DiaryViewModel.BackupEvent
 import com.aburv.kurippidu.DiaryViewModel.RestoreMode
 import com.aburv.kurippidu.DiaryViewModel.SaveState
+import com.aburv.kurippidu.data.DiaryOwnerEntity
+import com.aburv.kurippidu.data.DiaryType
 import com.aburv.kurippidu.data.TodoType
 import com.aburv.kurippidu.testutil.MainDispatcherRule
 import com.aburv.kurippidu.testutil.TestRepository
@@ -448,6 +450,20 @@ class DiaryViewModelTest {
         viewModel.insertTemplate(DiaryTemplate("Food", "🍔"))
         assertEquals("A\n🍔 Food:\nB", viewModel.diaryText.text)
         assertEquals(1 + "\n🍔 Food:\n".length, viewModel.diaryText.selection.start)
+    }
+
+    @Test
+    fun `template lines to fill in come after the heading`() {
+        viewModel.updateDiaryText(TextFieldValue("", selection = TextRange(0)))
+        viewModel.insertTemplate(DiaryTemplate("Water", "💧", "__ L\n"))
+        assertEquals("\n💧 Water:\n__ L\n", viewModel.diaryText.text)
+    }
+
+    @Test
+    fun `diary type follows the open diary`() {
+        val gym = runBlocking { data.dao.insertDiary(DiaryOwnerEntity(title = "G", type = DiaryType.GYM.name)).toInt() }
+        viewModel.setActiveDiary(gym)
+        eventually { assertEquals(DiaryType.GYM, viewModel.diaryType) }
     }
 
     /* ---------------- PAGES ---------------- */

@@ -10,6 +10,8 @@ import androidx.compose.ui.test.performTextInput
 import com.aburv.kurippidu.HomeScreen
 import com.aburv.kurippidu.LockMode
 import com.aburv.kurippidu.ThemeMode
+import com.aburv.kurippidu.data.DiaryType
+import com.aburv.kurippidu.data.diaryType
 import com.aburv.kurippidu.testutil.MainDispatcherRule
 import com.aburv.kurippidu.testutil.TestRepository
 import com.aburv.kurippidu.testutil.observeDiariesWithCountsOnce
@@ -104,6 +106,24 @@ class HomeScreenTest {
         compose.onNodeWithText("Delete").tap()
         waitForText("No diaries yet")
         waitForNoText("Gym")
+    }
+
+    @Test
+    fun `pick a type when creating, change it later`() {
+        waitForText("No diaries yet")
+        compose.onNodeWithContentDescription("Create diary").tap()
+        compose.onNodeWithText("🏋️ Gym").tap()
+        compose.onNodeWithText("Create").tap() // blank name: uses "Gym log"
+        waitForText("Gym log")
+        compose.onNodeWithText("🏋️").assertExists()
+
+        compose.onNodeWithContentDescription("Options").tap()
+        compose.onNodeWithText("Change type").tap()
+        compose.onNodeWithText("🦵 Rehab").tap()
+        waitForText("🦵")
+        val diary = runBlocking { data.dao.observeDiariesWithCountsOnce() }.single().diary
+        assertEquals(DiaryType.REHAB, diary.diaryType)
+        assertEquals("Gym log", diary.title)
     }
 
     @Test

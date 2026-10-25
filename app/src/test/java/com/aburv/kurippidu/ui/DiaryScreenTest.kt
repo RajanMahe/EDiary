@@ -150,6 +150,16 @@ class DiaryScreenTest {
     }
 
     @Test
+    fun `template sheet follows the diary type`() {
+        runBlocking { data.repository.setDiaryType(data.dao.getDiaryById(diaryId)!!, com.aburv.kurippidu.data.DiaryType.GYM) }
+        compose.onNodeWithContentDescription("Add").tap()
+        waitFor(hasText("Single leg / arm"))
+        compose.onNodeWithText("Workout").assertDoesNotExist()
+        compose.onNodeWithText("Single leg / arm").tap()
+        waitFor(hasText("Left … kg … rep … set", substring = true))
+    }
+
+    @Test
     fun `going to yesterday shows read-only view with an Edit button`() {
         compose.onNodeWithText("<").tap()
         val yesterday = today.minusDays(1)
